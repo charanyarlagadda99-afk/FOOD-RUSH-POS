@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>FoodRush - C++ Engine Food Delivery System</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+</head>
+<body>
+    <!-- Top Navigation Header -->
+    <header class="app-header">
+        <div class="header-left">
+            <div class="logo">
+                <span class="logo-icon">🚀</span>
+                <div>
+                    <h1>FoodRush</h1>
+                    <span class="subtitle">C++ Core High-Performance Engine</span>
+                </div>
+            </div>
+            <div class="engine-status" id="engineStatus">
+                <span class="status-dot"></span>
+                <span class="status-text">C++ Engine: Connected</span>
+            </div>
+        </div>
+
+        <!-- Global Live Module Indicator -->
+        <div class="module-tracker" id="moduleTracker">
+            <span class="tracker-label">LAST ACTION HANDLED BY:</span>
+            <div class="tracker-badges" id="trackerBadges">
+                <span class="badge badge-primary">Module I (Basics)</span>
+                <span class="badge badge-secondary">Module II (Control)</span>
+            </div>
+        </div>
+
+        <div class="header-right">
+            <button class="cart-quick-btn" onclick="switchTab('cart')">
+                🛒 Cart (<span id="cartCountBadge">0</span>)
+            </button>
+        </div>
+    </header>
+
+    <!-- Tab Bar -->
+    <nav class="tab-bar">
+        <button class="tab-btn active" onclick="switchTab('restaurants')">🏪 Restaurants & Menu</button>
+        <button class="tab-btn" onclick="switchTab('search')">🔍 Dish Search</button>
+        <button class="tab-btn" onclick="switchTab('cart')">🛒 Cart & Undo</button>
+        <button class="tab-btn" onclick="switchTab('kitchen')">👨‍🍳 Kitchen & Riders</button>
+        <button class="tab-btn" onclick="switchTab('admin')">📊 Sales Matrix & Stats</button>
+        <button class="tab-btn" onclick="switchTab('inspector')">🔬 Engine Inspector</button>
+        <button class="tab-btn" onclick="switchTab('benchmarks')">⚡ Benchmarks & STL</button>
+    </nav>
+
+    <!-- Main Content Container -->
+    <main class="content-container">
+
+        <!-- TAB 1: RESTAURANTS & MENU -->
+        <section id="tab-restaurants" class="tab-pane active">
+            <div class="section-header">
+                <div>
+                    <h2>Browse Partner Restaurants</h2>
+                    <p class="section-desc">Loaded from fixed-size C++ structures [Module VI: Restaurant, Module III: 1D Arrays]</p>
+                </div>
+                <div class="filter-controls">
+                    <button class="filter-btn active" onclick="filterMenuByRestaurant(0)">All Restaurants</button>
+                    <button class="filter-btn" onclick="filterMenuByRestaurant(1)">Bella Italia</button>
+                    <button class="filter-btn" onclick="filterMenuByRestaurant(2)">Tokyo Ramen</button>
+                    <button class="filter-btn" onclick="filterMenuByRestaurant(3)">Spice Symphony</button>
+                    <button class="filter-btn" onclick="filterMenuByRestaurant(4)">Burger Bistro</button>
+                </div>
+            </div>
+
+            <!-- Restaurant Summary Cards -->
+            <div class="restaurants-grid" id="restaurantsList">
+                <!-- Dynamically populated -->
+            </div>
+
+            <div class="section-subhead">
+                <h3>Available Dishes</h3>
+                <span class="pill-note">Prices, stock, and bitwise dietary flags managed by C++ [Module I, Module VI]</span>
+            </div>
+
+            <!-- Dishes Grid -->
+            <div class="dishes-grid" id="dishesList">
+                <!-- Dynamically populated -->
+            </div>
+        </section>
+
+        <!-- TAB 2: DISH SEARCH -->
+        <section id="tab-search" class="tab-pane">
+            <div class="section-header">
+                <div>
+                    <h2>High-Performance Dish Search</h2>
+                    <p class="section-desc">String traversal, toLower normalization, and substring pattern matching [Module V: Strings]</p>
+                </div>
+            </div>
+
+            <div class="search-box-card">
+                <div class="search-input-wrapper">
+                    <span class="search-icon">🔍</span>
+                    <input type="text" id="searchInput" placeholder="Type a dish, cuisine, or category (e.g. ramen, spicy, burger, pizza)..." onkeyup="handleSearchKey(event)">
+                    <button class="primary-btn" onclick="executeSearch()">Search Engine</button>
+                </div>
+                <div class="quick-tags">
+                    <span>Try:</span>
+                    <a href="javascript:void(0)" onclick="quickSearch('ramen')">Ramen</a>
+                    <a href="javascript:void(0)" onclick="quickSearch('pizza')">Pizza</a>
+                    <a href="javascript:void(0)" onclick="quickSearch('burger')">Burger</a>
+                    <a href="javascript:void(0)" onclick="quickSearch('curry')">Curry</a>
+                    <a href="javascript:void(0)" onclick="quickSearch('spicy')">Spicy</a>
+                    <a href="javascript:void(0)" onclick="quickSearch('veg')">Vegetarian</a>
+                </div>
+            </div>
+
+            <div id="searchResultsHeader" class="search-results-meta" style="display:none;">
+                <span id="searchResultCount">0 matches</span>
+                <span id="searchMetricsBadge" class="badge badge-info">O(M*K) Pattern Scan</span>
+            </div>
+
+            <div class="dishes-grid" id="searchResultsList">
+                <div class="empty-state">Enter a search keyword above to run the C++ string search algorithm.</div>
+            </div>
+        </section>
+
+        <!-- TAB 3: CART WITH UNDO -->
+        <section id="tab-cart" class="tab-pane">
+            <div class="cart-layout">
+                <div class="cart-items-column">
+                    <div class="card">
+                        <div class="card-header">
+                            <div>
+                                <h2>Your Cart</h2>
+                                <p class="card-desc">Array-backed Cart with Hand-crafted Stack Undo [Module VIII: Stack, Module I: Basics]</p>
+                            </div>
+                            <div class="cart-actions-bar">
+                                <button class="undo-btn" id="btnUndo" onclick="cartUndo()" title="Pop and reverse last action from Stack">
+                                    ↩️ <strong>UNDO ACTION</strong>
+                                    <span class="stack-badge" id="undoBadge">Stack: 0</span>
+                                </button>
+                                <button class="clear-btn" onclick="cartClear()">Clear Cart</button>
+                            </div>
+                        </div>
+
+                        <div id="cartMessageBar" class="alert-box" style="display: none;"></div>
+
+                        <div class="cart-items-table-wrapper" id="cartItemsContainer">
+                            <div class="empty-state">Your cart is currently empty. Add dishes from the menu!</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Checkout Summary Column -->
+                <div class="cart-summary-column">
+                    <div class="card summary-card">
+                        <h3>Order Summary</h3>
+                        <p class="summary-sub">Zone distance calculated via 2D matrix [Module IV]</p>
+
+                        <div class="delivery-options">
+                            <label>Delivery Zone:</label>
+                            <select id="checkoutZone" onchange="refreshCartView()">
+                                <option value="0">Zone 0: Downtown</option>
+                                <option value="1">Zone 1: Uptown</option>
+                                <option value="2">Zone 2: Tech Park</option>
+                                <option value="3">Zone 3: Suburbs North</option>
+                                <option value="4">Zone 4: Waterfront Harbor</option>
+                            </select>
+
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="checkoutExpress" onchange="refreshCartView()">
+                                <span>⚡ Express Priority (Cook first, faster rider)</span>
+                            </label>
+                        </div>
+
+                        <!-- Coupon Form -->
+                        <div class="coupon-section">
+                            <label>Coupon / Promo Code:</label>
+                            <div class="coupon-input-group">
+                                <input type="text" id="couponInput" placeholder="Try WELCOME20 or LEVEL">
+                                <button class="btn-secondary" onclick="applyCoupon()">Apply</button>
+                            </div>
+                            <small class="coupon-hint">💡 Tip: Try palindromes like <code>LEVEL</code> or <code>RACECAR</code> for reverseString bonus discount! [Module V, X]</small>
+                        </div>
+
+                        <!-- Price Breakdown -->
+                        <div class="bill-breakdown">
+                            <div class="bill-row"><span>Subtotal:</span><strong id="billSubtotal">$0.00</strong></div>
+                            <div class="bill-row"><span>Discount:</span><strong id="billDiscount" class="text-green">-$0.00</strong></div>
+                            <div class="bill-row"><span>Tax (8.25%):</span><strong id="billTax">$0.00</strong></div>
+                            <div class="bill-row"><span>Delivery Fee:</span><strong id="billDelivery">$0.00</strong></div>
+                            <div class="bill-divider"></div>
+                            <div class="bill-row total-row"><span>Final Total:</span><strong id="billTotal">$0.00</strong></div>
+                        </div>
+
+                        <!-- Checkout Form -->
+                        <div class="checkout-form">
+                            <label>Customer Name:</label>
+                            <input type="text" id="custName" value="Alice">
+                            <label>Street Address:</label>
+                            <input type="text" id="custStreet" value="452 Elm Street">
+                            <button class="checkout-btn" onclick="submitCheckout()">
+                                Complete Checkout ➔
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 4: KITCHEN & RIDERS -->
+        <section id="tab-kitchen" class="tab-pane">
+            <div class="section-header">
+                <div>
+                    <h2>Kitchen Order Queue & Rider Dispatch</h2>
+                    <p class="section-desc">Circular Queue FIFO order processing and priority dispatch [Module IX: Queue, Module VI: Orders]</p>
+                </div>
+                <div>
+                    <button class="primary-btn" onclick="cookNextOrder()">🍳 Cook Next Order (Queue Dequeue)</button>
+                </div>
+            </div>
+
+            <!-- Queue Metrics Bar -->
+            <div class="metrics-row">
+                <div class="metric-card">
+                    <span class="metric-label">Circular Kitchen Queue</span>
+                    <strong class="metric-value" id="metricKitchenQueue">0</strong>
+                    <span class="metric-sub">Pending Chef Preparation</span>
+                </div>
+                <div class="metric-card">
+                    <span class="metric-label">Express Priority Queue</span>
+                    <strong class="metric-value text-orange" id="metricExpressQueue">0</strong>
+                    <span class="metric-sub">Jump Ahead Priority</span>
+                </div>
+                <div class="metric-card">
+                    <span class="metric-label">Available Riders</span>
+                    <strong class="metric-value text-green" id="metricAvailableRiders">5</strong>
+                    <span class="metric-sub">In Circular Rotation</span>
+                </div>
+            </div>
+
+            <!-- Live Orders Table -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Active & Recent Orders</h3>
+                    <button class="btn-small" onclick="loadOrders()">🔄 Refresh Orders</button>
+                </div>
+                <div class="orders-table-wrapper" id="ordersContainer">
+                    <div class="empty-state">No orders placed yet. Place an order in the Cart tab!</div>
+                </div>
+            </div>
+
+            <!-- Rider Fleet -->
+            <div class="card" style="margin-top: 24px;">
+                <div class="card-header">
+                    <h3>Delivery Rider Fleet (Circular Rotation)</h3>
+                    <span class="pill-note">[Module IX: Rider Queue, Module VI: Rider Struct]</span>
+                </div>
+                <div class="riders-grid" id="ridersGrid">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 5: ADMIN & SALES MATRIX -->
+        <section id="tab-admin" class="tab-pane">
+            <div class="section-header">
+                <div>
+                    <h2>Admin Analytics: 7-Day Sales Matrix & Distances</h2>
+                    <p class="section-desc">Raw 2D Array Matrix Operations: Row Sums, Column Sums, Peak Analysis [Module IV: 2D Arrays]</p>
+                </div>
+                <button class="btn-secondary" onclick="loadSalesMatrix()">Refresh Matrix</button>
+            </div>
+
+            <div class="matrix-summary-row" id="matrixStatsRow">
+                <!-- Highlights: Grand Total, Busiest Restaurant, Busiest Day -->
+            </div>
+
+            <!-- 2D Sales Table -->
+            <div class="card">
+                <div class="card-header">
+                    <h3>Weekly Sales Matrix (USD) - <code>sales[Restaurant][Day]</code></h3>
+                    <span class="pill-note">Row Sums = Restaurant Totals | Column Sums = Day Totals</span>
+                </div>
+                <div class="matrix-table-wrapper" id="salesMatrixTableContainer">
+                    <!-- Matrix Table -->
+                </div>
+            </div>
+
+            <!-- 2D Zone Distance Matrix -->
+            <div class="card" style="margin-top: 24px;">
+                <div class="card-header">
+                    <h3>Zone Distance Matrix (Kilometers) - <code>zoneDistanceMatrix[5][5]</code></h3>
+                    <span class="pill-note">Symmetric 2D Matrix used for O(1) Delivery Fee calculation</span>
+                </div>
+                <div class="matrix-table-wrapper" id="distanceMatrixTableContainer">
+                    <!-- Distance Matrix Table -->
+                </div>
+            </div>
+
+            <!-- 1D Array Statistics Card -->
+            <div class="card" style="margin-top: 24px;">
+                <div class="card-header">
+                    <h3>1D Array Statistical Operations [Module III]</h3>
+                    <button class="btn-small" onclick="loadArrayStats()">Compute 1D Stats</button>
+                </div>
+                <div id="arrayStatsContainer">
+                    <p class="text-muted">Click button to run C++ sum, min, max, and bubble sort on raw 1D arrays.</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 6: ENGINE INSPECTOR -->
+        <section id="tab-inspector" class="tab-pane">
+            <div class="section-header">
+                <div>
+                    <h2>Data Structure Memory & Live Inspector</h2>
+                    <p class="section-desc">Direct introspection of hand-crafted C++ Stack, Circular Queue pointers, and STL registry</p>
+                </div>
+                <button class="primary-btn" onclick="loadEngineInspector()">🔬 Refresh Snapshot</button>
+            </div>
+
+            <div class="inspector-grid">
+                <!-- Stack Inspector Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>📚 Cart Action Stack [Module VIII]</h3>
+                        <span class="badge badge-primary" id="inspStackBadge">Depth: 0 / 50</span>
+                    </div>
+                    <p class="inspector-explainer">Fixed-size raw array stack with <code>topIndex</code>. Newest actions sit on top.</p>
+                    <div class="stack-visualizer" id="stackVisualizer">
+                        <div class="empty-state">Stack is empty. Add or remove items in cart to see frames pushed here.</div>
+                    </div>
+                </div>
+
+                <!-- Circular Queue Inspector Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>🔄 Circular Kitchen Queue [Module IX]</h3>
+                        <span class="badge badge-success" id="inspQueueBadge">0 / 50</span>
+                    </div>
+                    <p class="inspector-explainer">Circular buffer with <code>frontIndex</code> and <code>rearIndex</code> modulo wrap-around.</p>
+                    <div class="queue-visualizer" id="queueVisualizer">
+                        <div class="empty-state">Queue is empty. Place orders to see circular slots populated.</div>
+                    </div>
+                </div>
+
+                <!-- Recently Viewed Stack -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>👁️ Recently Viewed Dishes Stack [Module VIII]</h3>
+                    </div>
+                    <p class="inspector-explainer">LIFO stack updated whenever dishes are searched or viewed.</p>
+                    <div id="recentDishesVisualizer">
+                        <div class="empty-state">No dishes viewed yet.</div>
+                    </div>
+                </div>
+
+                <!-- STL Overview -->
+                <div class="card">
+                    <div class="card-header">
+                        <h3>🌐 STL Registry Overview [Module X]</h3>
+                    </div>
+                    <div id="stlOverviewContainer">
+                        <p class="text-muted">Loading STL container registry...</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- TAB 7: BENCHMARKS & STL -->
+        <section id="tab-benchmarks" class="tab-pane">
+            <div class="section-header">
+                <div>
+                    <h2>Live Algorithmic Benchmarks & Complexity [Module VII, X]</h2>
+                    <p class="section-desc">High-resolution clock timing: Linear vs Binary Search, Bubble Sort vs std::sort, and Custom DS vs STL</p>
+                </div>
+                <div class="button-group">
+                    <button class="primary-btn" onclick="runBenchmark()">⚡ Run Benchmark</button>
+                    <button class="btn-secondary" onclick="runCompareDS()">⚖️ Compare Hand-crafted vs STL</button>
+                </div>
+            </div>
+
+            <!-- Benchmark Results -->
+            <div id="benchmarkResultsArea">
+                <div class="empty-state">Click <strong>Run Benchmark</strong> to execute high-resolution C++ timing tests.</div>
+            </div>
+
+            <!-- Big O Complexity Reference Table -->
+            <div class="card" style="margin-top: 24px;">
+                <div class="card-header">
+                    <h3>Theoretical Asymptotic Complexity Map (All FoodRush Features)</h3>
+                    <span class="badge badge-info">Module VII Big-O Analysis</span>
+                </div>
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Feature</th>
+                            <th>Data Structure</th>
+                            <th>Time Complexity</th>
+                            <th>Space Complexity</th>
+                            <th>Explanation</th>
+                        </tr>
+                    </thead>
+                    <tbody id="complexityTableBody">
+                        <tr><td>Browse Catalog</td><td>1D Fixed Array</td><td>O(1) direct / O(N) scan</td><td>O(1)</td><td>Direct indexing by restaurant ID or sequential traversal</td></tr>
+                        <tr><td>Dish Search</td><td>String Pattern Matcher</td><td>O(M * K)</td><td>O(1)</td><td>Linear scan across items with inner substring matcher</td></tr>
+                        <tr><td>Cart Undo Stack</td><td>Custom ArrayStack</td><td>O(1) push & pop</td><td>O(CAPACITY)</td><td>Direct topIndex increment/decrement, zero allocations</td></tr>
+                        <tr><td>Kitchen Queue</td><td>Circular Buffer</td><td>O(1) enqueue & dequeue</td><td>O(CAPACITY)</td><td>Modulo arithmetic wrap-around front/rear pointers</td></tr>
+                        <tr><td>Sales Matrix Analytics</td><td>2D Array Matrix (4x7)</td><td>O(R * D)</td><td>O(R * D)</td><td>Full row/column summations across restaurants and days</td></tr>
+                        <tr><td>Zone Distance Lookup</td><td>2D Distance Matrix (5x5)</td><td>O(1) direct lookup</td><td>O(Z^2)</td><td>Direct symmetric 2D matrix element access</td></tr>
+                        <tr><td>Coupon Lookup</td><td>std::map (Red-Black Tree)</td><td>O(log C)</td><td>O(C)</td><td>Balanced search tree dictionary lookup</td></tr>
+                        <tr><td>Palindrome Bonus</td><td>String Reversal</td><td>O(L)</td><td>O(L)</td><td>Single-pass two-pointer string reversal</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+    </main>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+        <p><strong>FoodRush</strong> - Comprehensive C++ Food Delivery Engine Architecture | Pair Programming CS Project</p>
+        <p class="footer-modules">Covers Syllabus Modules I through X with verified hand-crafted array structures and STL counterparts.</p>
+    </footer>
+
+    <!-- Notification Toast -->
+    <div id="toast" class="toast"></div>
+
+    <script src="app.js"></script>
+</body>
+</html>

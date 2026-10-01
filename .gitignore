@@ -1,0 +1,6 @@
+node_modules/
+*.log
+foodrush_engine.exe
+foodrush_engine
+.vercel/
+.DS_Store

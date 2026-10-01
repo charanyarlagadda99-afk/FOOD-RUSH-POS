@@ -11,43 +11,47 @@
 
 const int DAYS_PER_WEEK = 7;
 
-// Zone names for delivery matrix lookup
+// [MODULE IV] Neutral Zone names for 5 delivery zones
 const char* const ZONE_NAMES[MAX_ZONES] = {
-    "Downtown",
-    "Uptown",
-    "Tech Park",
-    "Suburbs North",
-    "Waterfront Harbor"
+    "Central",
+    "North",
+    "South",
+    "East",
+    "West"
 };
 
 // [MODULE IV] 2D Array: Distance Matrix between delivery zones (in kilometers)
 // Symmetric 5x5 matrix
 const double ZONE_DISTANCE_MATRIX[MAX_ZONES][MAX_ZONES] = {
-    // DT    UP    TP    SN    WF
-    { 0.0,  3.2,  5.8,  8.4,  4.1 }, // Downtown
-    { 3.2,  0.0,  4.5,  6.1,  7.0 }, // Uptown
-    { 5.8,  4.5,  0.0,  5.2,  9.3 }, // Tech Park
-    { 8.4,  6.1,  5.2,  0.0, 11.5 }, // Suburbs North
-    { 4.1,  7.0,  9.3, 11.5,  0.0 }  // Waterfront Harbor
+    // Cen    Nor    Sou    Eas    Wes
+    { 0.0,   3.5,   4.2,   5.1,   3.8 }, // Central (Zone 0)
+    { 3.5,   0.0,   7.4,   6.2,   5.9 }, // North   (Zone 1)
+    { 4.2,   7.4,   0.0,   6.8,   6.5 }, // South   (Zone 2)
+    { 5.1,   6.2,   6.8,   0.0,   8.2 }, // East    (Zone 3)
+    { 3.8,   5.9,   6.5,   8.2,   0.0 }  // West    (Zone 4)
 };
 
 class SalesMatrixManager {
 private:
     // [MODULE IV] 2D Array: Sales revenue per restaurant per day of the week
-    // Rows: 4 Restaurants, Columns: 7 Days (Mon=0, Tue=1, Wed=2, Thu=3, Fri=4, Sat=5, Sun=6)
+    // Rows: 6 Restaurants, Columns: 7 Days (Mon=0, Tue=1, Wed=2, Thu=3, Fri=4, Sat=5, Sun=6)
     double sales[MAX_RESTAURANTS][DAYS_PER_WEEK];
 
 public:
-    // [MODULE IV] Matrix Initialization with seed historical data | used by: SALES_INIT
+    // [MODULE IV] Matrix Initialization with seed historical revenue in INR | used by: SALES_INIT
     SalesMatrixManager() {
-        // Restaurant 0: Bella Italia
-        sales[0][0] = 620.50; sales[0][1] = 580.00; sales[0][2] = 710.25; sales[0][3] = 690.80; sales[0][4] = 950.40; sales[0][5] = 1240.00; sales[0][6] = 1110.50;
-        // Restaurant 1: Tokyo Ramen & Sushi
-        sales[1][0] = 540.00; sales[1][1] = 610.75; sales[1][2] = 630.00; sales[1][3] = 720.50; sales[1][4] = 880.20; sales[1][5] = 1350.80; sales[1][6] = 1190.00;
-        // Restaurant 2: Spice Symphony
-        sales[2][0] = 480.25; sales[2][1] = 510.00; sales[2][2] = 590.50; sales[2][3] = 640.00; sales[2][4] = 890.60; sales[2][5] = 1420.30; sales[2][6] = 1280.40;
-        // Restaurant 3: Burger & Brews
-        sales[3][0] = 710.00; sales[3][1] = 690.50; sales[3][2] = 780.00; sales[3][3] = 820.40; sales[3][4] = 1150.00; sales[3][5] = 1580.90; sales[3][6] = 1390.20;
+        // Restaurant 0: Royal Dum Biryani
+        sales[0][0] = 14200.0; sales[0][1] = 13800.0; sales[0][2] = 15900.0; sales[0][3] = 16400.0; sales[0][4] = 22500.0; sales[0][5] = 28900.0; sales[0][6] = 26400.0;
+        // Restaurant 1: Sagar Dosa & Tiffin
+        sales[1][0] = 9800.0;  sales[1][1] = 10400.0; sales[1][2] = 11200.0; sales[1][3] = 11800.0; sales[1][4] = 15600.0; sales[1][5] = 21400.0; sales[1][6] = 19800.0;
+        // Restaurant 2: Bella Italia Trattoria
+        sales[2][0] = 11500.0; sales[2][1] = 10900.0; sales[2][2] = 12600.0; sales[2][3] = 13100.0; sales[2][4] = 18900.0; sales[2][5] = 24800.0; sales[2][6] = 22300.0;
+        // Restaurant 3: Tokyo Ramen & Robata
+        sales[3][0] = 12800.0; sales[3][1] = 12100.0; sales[3][2] = 13400.0; sales[3][3] = 14200.0; sales[3][4] = 19700.0; sales[3][5] = 25900.0; sales[3][6] = 23700.0;
+        // Restaurant 4: The Burger & Brews Co.
+        sales[4][0] = 13600.0; sales[4][1] = 13100.0; sales[4][2] = 14800.0; sales[4][3] = 15500.0; sales[4][4] = 21200.0; sales[4][5] = 27800.0; sales[4][6] = 25100.0;
+        // Restaurant 5: Sweet Tooth Patisserie
+        sales[5][0] = 8400.0;  sales[5][1] = 7900.0;  sales[5][2] = 8900.0;  sales[5][3] = 9400.0;  sales[5][4] = 14200.0; sales[5][5] = 19500.0; sales[5][6] = 18100.0;
     }
 
     // [MODULE IV] Row Sum: Calculate total weekly sales for a specific restaurant | used by: RESTAURANT_TOTALS
@@ -108,7 +112,7 @@ public:
     // [MODULE IV] 2D Zone Distance Lookup | used by: DELIVERY_FEE_CALCULATION
     static double getDistance(int fromZone, int toZone) {
         if (fromZone < 0 || fromZone >= MAX_ZONES || toZone < 0 || toZone >= MAX_ZONES) {
-            return 5.0; // Default fallback distance
+            return 4.0; // Default fallback distance
         }
         return ZONE_DISTANCE_MATRIX[fromZone][toZone];
     }
@@ -122,9 +126,9 @@ public:
             outFee += EXPRESS_SURCHARGE;
         }
 
-        // ETA calculation: 15 mins prep + 3.5 mins per km (Express is 10 mins faster)
-        int travelMins = static_cast<int>(distKm * 3.5);
-        int prepMins = isExpress ? 10 : 18;
+        // ETA calculation: 15 mins prep + 3 mins per km (Express shaves off 10 mins)
+        int travelMins = static_cast<int>(distKm * 3.0);
+        int prepMins = isExpress ? 12 : 20;
         outEstimatedMinutes = prepMins + travelMins;
     }
 

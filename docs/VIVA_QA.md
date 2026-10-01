@@ -1,44 +1,44 @@
 # FoodRush - Viva Voce Exam Q&A Guide
-### 30 Likely Professor Questions & Concise Model Answers (3 per Module)
+### 30 Likely Professor Questions & Model Answers (3 per Module)
 
 ---
 
 ### Module I: Basics (I/O, Constants, Data Types, Operators, Type Conversion)
 
 **Q1: Why did you use `static_cast<double>` instead of C-style casting `(double)` in bill calculations?**  
-> **Answer:** `static_cast` provides compile-time type checking and makes the conversion intention explicit. Unlike C-style casts, it prevents dangerous accidental conversions between incompatible pointer types or constness removal.
+> **Answer:** `static_cast` provides compile-time type safety and makes the conversion intention explicit. Unlike C-style casts, it prevents dangerous accidental conversions between incompatible pointer types or unintended constness removal.
 
 **Q2: How are bitwise operators used in the `MenuItem` struct?**  
-> **Answer:** We pack multiple dietary booleans into an `unsigned int dietaryFlags` using bit flags (Bit 0 = Spicy [1], Bit 1 = Gluten-Free [2], Bit 2 = Chef Special [4]). We check tags using bitwise AND (`flags & 1`), saving memory and enabling fast multi-attribute filtering.
+> **Answer:** We pack multiple dietary booleans into an `unsigned int dietaryFlags` using bit masks (Bit 0 = Spicy [1], Bit 1 = Gluten-Free [2], Bit 2 = Chef Special [4]). We check tags using bitwise AND (`flags & 1`), saving memory and enabling fast multi-attribute filtering.
 
 **Q3: Why are system capacities declared as `const int` rather than `#define` macros?**  
-> **Answer:** `const int` respects C++ scope rules, has a defined data type, is visible in the debugger symbol table, and avoids macro substitution side-effects.
+> **Answer:** `const int` respects C++ namespace and scope rules, has a defined data type, is visible in the debugger symbol table, and avoids macro text substitution side-effects.
 
 ---
 
 ### Module II: Control Statements & Functions
 
 **Q4: How does function overloading improve your currency formatting?**  
-> **Answer:** We implemented `formatCurrency(double dollars)` and `formatCurrency(int cents)`. The compiler chooses the correct overload based on the argument type at compile time without requiring separate function names.
+> **Answer:** We implemented `formatCurrency(double amount)` and `formatCurrency(int paise)`. The compiler resolves the correct overload based on the argument type at compile time without requiring distinct function names.
 
 **Q5: Why did you pass structs by `const &` (const reference) in your helper functions?**  
 > **Answer:** Passing by value creates a full copy of the struct on the stack, wasting CPU cycles and memory. Passing by `const &` passes only a memory address (pointer size) while the `const` qualifier guarantees the function cannot mutate caller data.
 
 **Q6: What is the purpose of the command dispatcher switch/if-else ladder?**  
-> **Answer:** It acts as an application-level router. It tokenizes the incoming stdin line, inspects the primary command verb, extracts parameters, and delegates execution to the appropriate domain function.
+> **Answer:** It acts as an application-level router. It tokenizes the incoming stdin line, inspects the primary command verb (e.g. `GET_MENU`, `CART_ADD`, `CHECKOUT`), extracts parameters, and delegates execution to the appropriate domain function.
 
 ---
 
 ### Module III: 1D Arrays (Operations, Search, Sort)
 
 **Q7: When an array is passed into a C++ function like `void bubbleSortArray(double arr[], int size)`, what is actually passed?**  
-> **Answer:** In C++, arrays decay to a pointer to their first element (`double*`). Because arrays do not carry their own length information, we must explicitly pass the `int size` parameter to enforce bounds safety.
+> **Answer:** In C++, array names decay to a pointer to their first element (`double*`). Because raw arrays do not carry their own length information, we must explicitly pass the `int size` parameter to enforce bounds safety.
 
 **Q8: What is the worst-case and best-case time complexity of Bubble Sort in your implementation?**  
-> **Answer:** Worst case is $O(N^2)$ when the array is in reverse order. With our `swapped` boolean flag optimization, best-case is $O(N)$ when the array is already sorted, terminating on the first pass.
+> **Answer:** Worst case is $O(N^2)$ when the array is in reverse order. With our `swapped` boolean flag optimization, best-case is $O(N)$ when the array is already sorted, terminating immediately on the first pass.
 
 **Q9: Why use Linear Search on menu items instead of Binary Search in the main catalog?**  
-> **Answer:** Binary Search requires the array to remain strictly sorted by the search key at all times. For small fixed arrays (24 items), $O(N)$ Linear Search executes in microseconds without the overhead of maintaining sorted order upon item updates.
+> **Answer:** Binary Search requires the array to remain strictly sorted by the search key at all times. For small fixed arrays (48 items), $O(N)$ Linear Search executes in sub-microsecond time without the overhead of maintaining sorted order upon item updates.
 
 ---
 
@@ -47,21 +47,23 @@
 **Q10: Explain the memory layout of your 2D array `sales[MAX_RESTAURANTS][DAYS_PER_WEEK]` in C++.**  
 > **Answer:** C++ stores 2D arrays in **Row-Major Order**, meaning elements of row 0 (`sales[0][0]` through `sales[0][6]`) are contiguous in memory, followed immediately by row 1. This enables high CPU cache locality during row-wise traversals.
 
-**Q11: What do row sums and column sums represent in your sales matrix?**  
-> **Answer:** A row sum represents the total weekly revenue generated by a single restaurant across all 7 days. A column sum represents total platform-wide sales on a specific day across all restaurants.
+**Q11: What do row sums and column sums represent in your 6×7 sales matrix?**  
+> **Answer:** A row sum represents the total weekly revenue generated by a single restaurant across all 7 days. A column sum represents total platform-wide sales on a specific day across all 6 restaurants.
 
-**Q12: How does the 5x5 distance matrix calculate delivery fees in $O(1)$ time?**  
-> **Answer:** Since restaurant zones and customer zones are integer IDs (0 to 4), finding distance is a direct symmetric matrix index lookup `ZONE_DISTANCE_MATRIX[restZone][custZone]` in constant $O(1)$ time without searching or network overhead.
+**Q12: How does the 5×5 distance matrix calculate delivery fees in $O(1)$ time?**  
+> **Answer:** Since restaurant zones and customer zones are integer IDs (0 to 4: Central, North, South, East, West), finding distance is a direct symmetric matrix index lookup `ZONE_DISTANCE_MATRIX[restZone][custZone]` in constant $O(1)$ time without searching or network overhead.
 
 ---
 
 ### Module V: Strings
 
-**Q13: How does your case-insensitive substring search algorithm work?**  
-> **Answer:** We iterate through both the dish name and the user search query, convert each character to lowercase using `std::tolower`, and then perform pattern matching using `std::string::find()`.
+**Q13: How does your fuzzy search algorithm provide "Did you mean?" suggestions?**  
+> **Answer:** If case-insensitive substring search finds no results, the engine evaluates the query against all dish names using the **Levenshtein Distance** algorithm (a 2D dynamic programming matrix computing minimum insertions, deletions, and substitutions). Items with an edit distance $\le 2$ are returned as suggestions.
 
-**Q14: Explain the string reversal algorithm used in the palindrome coupon feature.**  
-> **Answer:** We use a two-pointer approach swapping characters from opposite ends (`str[i]` with `str[n - 1 - i]`) until meeting in the middle ($N/2$ iterations). If `str == reverseString(str)`, the promo code is recognized as a palindrome and earns extra discount.
+**Q14: How does your system use string reversal in tracking codes and coupons?**  
+> **Answer:**  
+> 1. **Tracking Codes**: Order IDs generate codes like `TRK-1001-8`. The check digit is computed by reversing the order digits using a two-pointer string reversal algorithm and computing a weighted modulo-9 sum to prevent transcription tampering.  
+> 2. **Coupons**: The coupon validator compares the code against its reversed string. If `code == reverseString(code)` (e.g. `LEVEL`, `RACECAR`), it recognizes a palindrome and grants a bonus VIP discount.
 
 **Q15: What is the time complexity of character frequency analysis on a search query?**  
 > **Answer:** For a string of length $L$, iterating characters takes $O(L)$. Inserting into `std::map<char, int>` takes $O(\log K)$ where $K \le 36$ (alphanumeric characters), yielding an overall time complexity of $O(L \log K)$.
@@ -74,7 +76,7 @@
 > **Answer:** A nested structure is a struct that contains an instance of another struct as a member. In FoodRush, the `Order` struct contains a nested `Address deliveryAddress` struct along with an array of `CartItem` structs.
 
 **Q17: Why did you declare member functions inside structs (e.g. `toJSON()`)?**  
-> **Answer:** In C++, structs can have member methods just like classes (with public default visibility). Placing serialization methods inside the struct encapsulates formatting logic directly with the data it represents.
+> **Answer:** In C++, structs can have member methods just like classes (with default public visibility). Placing serialization methods inside the struct encapsulates formatting logic directly with the data it represents.
 
 **Q18: What is structure padding/alignment, and does it affect your structs?**  
 > **Answer:** Compilers pad struct members to align them to 4-byte or 8-byte word boundaries for hardware efficiency. Ordering struct members from largest to smallest minimizes padding overhead.
@@ -94,7 +96,7 @@
 
 ---
 
-### Module VIII: Stack (Hand-crafted Array Implementation)
+### Module VIII: Stack (Hand-Crafted Array Implementation)
 
 **Q22: Why build `ArrayStack` by hand with raw arrays before using `std::stack`?**  
 > **Answer:** Building it by hand demonstrates understanding of low-level memory layout: allocating contiguous storage, managing `topIndex`, implementing boundary checks (`isFull` and `isEmpty`), and avoiding dynamic heap overhead.
@@ -113,7 +115,7 @@
 > **Answer:** In a simple linear queue, dequeuing leaves unused space at the front of the array. A circular queue uses modulo arithmetic `(rear + 1) % CAPACITY` to wrap around, enabling continuous enqueuing and dequeuing without shifting elements.
 
 **Q26: What are the conditions for `isEmpty()` and `isFull()` in your circular queue?**  
-> **Answer:** We maintain an explicit `int count` variable. `isEmpty()` returns `count == 0` and `isFull()` returns `count == CAPACITY`. This cleanly disambiguates full and empty states.
+> **Answer:** We maintain an explicit `int count` variable. `isEmpty()` returns `count == 0` and `isFull()` returns `count == CAPACITY`. This cleanly disambiguates full and empty states without wasting a slot.
 
 **Q27: How does your Express Order Priority Queue work?**  
 > **Answer:** `PriorityOrderQueue` manages two internal circular queues: an express queue and a standard queue. On dequeue, it always checks and drains the express queue first before serving standard orders, guaranteeing express orders jump ahead.
@@ -124,8 +126,8 @@
 
 **Q28: Which STL containers are used in FoodRush and for what real purpose?**  
 > **Answer:**  
-> - `std::map<string, double>`: Fast coupon code to percentage discount lookup.  
-> - `std::set<string>`: Registry of unique available cuisines.  
+> - `std::map<string, double>`: Fast coupon code to percentage discount lookup ($O(\log C)$).  
+> - `std::set<string>`: Registry of unique available cuisines ($O(\log K)$ uniqueness).  
 > - `std::vector<MenuItem>`: Dynamic menu item storage with iterator traversal.  
 > - `std::deque<int>`: Double-ended tracking of recent completed orders.  
 > - `std::pair<int, double>`: Associating dish IDs with daily promotional discount rates.  

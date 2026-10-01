@@ -1,6 +1,6 @@
 // ============================================================================
-// FoodRush - Core C++ Engine
-// A high-performance food delivery backend showcasing CS Syllabus Modules I-X
+// FoodRush - High-Performance C++ Core Engine
+// Full Implementation of CS Syllabus Modules I-X
 // ============================================================================
 
 #include <iostream>
@@ -30,7 +30,6 @@ Rider gRiders[MAX_RIDERS];
 int gRiderCount = 0;
 
 // [MODULE VIII] Custom Array-based Stack for Cart Undo History
-// Hand-crafted with raw array first!
 ArrayStack<CartAction, 50> gUndoStack;
 
 // [MODULE VIII] ArrayStack for Recently Viewed Dishes (LIFO)
@@ -70,18 +69,17 @@ int gNextOrderId = 1001;
 // [MODULE II] Function Overloading: formatCurrency with double
 inline std::string formatCurrency(double amount) {
     std::ostringstream ss;
-    ss << "$" << std::fixed << std::setprecision(2) << amount;
+    ss << CURRENCY_SYMBOL << std::fixed << std::setprecision(2) << amount;
     return ss.str();
 }
 
-// [MODULE II] Function Overloading: formatCurrency with integer cents
-inline std::string formatCurrency(int cents) {
-    // [MODULE I] Type conversion: static_cast from int cents to double dollars
-    double dollars = static_cast<double>(cents) / 100.0;
-    return formatCurrency(dollars);
+// [MODULE II] Function Overloading: formatCurrency with integer paise (cents)
+inline std::string formatCurrency(int paise) {
+    // [MODULE I] Type conversion: static_cast from int paise to double rupees
+    double rupees = static_cast<double>(paise) / 100.0;
+    return formatCurrency(rupees);
 }
 
-// Helper: Find menu item by ID
 const MenuItem* findMenuItemById(int itemId) {
     for (int i = 0; i < gMenuItemCount; ++i) {
         if (gMenuItems[i].id == itemId) {
@@ -100,7 +98,6 @@ MenuItem* findMenuItemByIdMutable(int itemId) {
     return nullptr;
 }
 
-// Helper: Find restaurant by ID
 const Restaurant* findRestaurantById(int restId) {
     for (int i = 0; i < gRestaurantCount; ++i) {
         if (gRestaurants[i].id == restId) {
@@ -108,6 +105,26 @@ const Restaurant* findRestaurantById(int restId) {
         }
     }
     return nullptr;
+}
+
+Order* findOrderById(int orderId) {
+    for (int i = 0; i < gOrderCount; ++i) {
+        if (gOrders[i].orderId == orderId) {
+            return &gOrders[i];
+        }
+    }
+    return nullptr;
+}
+
+// Calculate live position of an order in the kitchen circular queue
+int getOrderQueuePosition(int orderId) {
+    for (int i = 0; i < gKitchenQueue.size(); ++i) {
+        int qId = 0;
+        if (gKitchenQueue.getAtOffset(i, qId) && qId == orderId) {
+            return i + 1; // 1-indexed queue position
+        }
+    }
+    return 0; // Not currently waiting in queue (cooking, out for delivery, or delivered)
 }
 
 // [MODULE I] Bill Calculation using operators and type conversion
@@ -123,7 +140,6 @@ void calculateCartTotals(
     outSubtotal = 0.0;
     int restaurantZoneId = 0;
 
-    // Sum cart line items
     for (int i = 0; i < gCartCount; ++i) {
         outSubtotal += gCartItems[i].getLineTotal();
         const Restaurant* r = findRestaurantById(gCartItems[i].restaurantId);
@@ -152,8 +168,11 @@ void calculateCartTotals(
         outDiscount += (outSubtotal * (gActiveDiscountPercent / 100.0));
     }
     outDiscount += gActiveDiscountFlat;
+    if (gActiveCouponCode.find("FREEDEL") != std::string::npos) {
+        outDeliveryFee = 0.0; // Free delivery coupon
+    }
     if (outDiscount > outSubtotal) {
-        outDiscount = outSubtotal; // Prevent negative bill
+        outDiscount = outSubtotal;
     }
 
     outTotal = (outSubtotal - outDiscount) + outTax + outDeliveryFee;
@@ -187,12 +206,18 @@ std::string cartToJSON(int deliveryZone = 0, bool isExpress = false) {
     return ss.str();
 }
 
-// Build standard JSON response with Handled By module tags
+// Build standard JSON response supporting both "modules" and "handled_by"
 std::string makeResponse(bool success, const std::string& message, const std::string& dataJSON, const std::vector<std::string>& modules) {
     std::ostringstream ss;
     ss << "{"
        << "\"success\":" << (success ? "true" : "false") << ","
        << "\"message\":\"" << escapeJSON(message) << "\","
+       << "\"modules\":[";
+    for (size_t i = 0; i < modules.size(); ++i) {
+        ss << "\"" << escapeJSON(modules[i]) << "\"";
+        if (i < modules.size() - 1) ss << ",";
+    }
+    ss << "],"
        << "\"handled_by\":[";
     for (size_t i = 0; i < modules.size(); ++i) {
         ss << "\"" << escapeJSON(modules[i]) << "\"";
@@ -247,7 +272,6 @@ bool addToCartInternal(int itemId, int quantity, bool recordUndo = true) {
         action.itemName = item->name;
         gUndoStack.push(action);
 
-        // Also track on STL stack for Module X demonstration
         gSTLManager.pushUndo(action);
     }
 
@@ -292,31 +316,27 @@ bool removeFromCartInternal(int itemId, bool recordUndo = true) {
 bool performCartUndo(std::string& outActionDesc) {
     CartAction action;
     if (!gUndoStack.pop(action)) {
-        outActionDesc = "Undo stack is empty - nothing to revert.";
+        outActionDesc = "Undo history is empty.";
         return false;
     }
 
-    // Also pop from STL stack to maintain equivalence
     CartAction stlAction;
     gSTLManager.popUndo(stlAction);
 
     std::ostringstream ss;
 
     if (action.type == ACTION_ADD_ITEM) {
-        // Reverse adding: remove or decrease
         if (action.previousQuantity == 0) {
-            // It was a brand new addition -> remove completely without pushing new undo
             removeFromCartInternal(action.itemId, false);
-            ss << "Undid adding '" << action.itemName << "' (removed from cart)";
+            ss << "Removed '" << action.itemName << "' from order";
         } else {
-            // Restore previous quantity
             for (int i = 0; i < gCartCount; ++i) {
                 if (gCartItems[i].itemId == action.itemId) {
                     gCartItems[i].quantity = action.previousQuantity;
                     break;
                 }
             }
-            ss << "Undid quantity change for '" << action.itemName << "' (restored to " << action.previousQuantity << ")";
+            ss << "Updated quantity of '" << action.itemName << "' to " << action.previousQuantity;
         }
     } else if (action.type == ACTION_UPDATE_QTY) {
         for (int i = 0; i < gCartCount; ++i) {
@@ -327,9 +347,8 @@ bool performCartUndo(std::string& outActionDesc) {
         }
         ss << "Restored quantity of '" << action.itemName << "' to " << action.previousQuantity;
     } else if (action.type == ACTION_REMOVE_ITEM) {
-        // Reverse removal: re-insert into cart
         addToCartInternal(action.itemId, action.previousQuantity, false);
-        ss << "Restored removed item '" << action.itemName << "' (quantity: " << action.previousQuantity << ")";
+        ss << "Restored '" << action.itemName << "' to order";
     }
 
     outActionDesc = ss.str();
@@ -352,7 +371,7 @@ std::string handleCommand(const std::string& rawLine) {
     // PING
     // ------------------------------------------------------------------------
     if (cmd == "PING") {
-        return makeResponse(true, "FoodRush Engine is alive and ready", "{\"status\":\"OK\"}", {"Module I (Basics)", "Module II (Control)"});
+        return makeResponse(true, "FoodRush Engine is active", "{\"status\":\"OK\"}", {"Module I (Basics)", "Module II (Control)"});
     }
 
     // ------------------------------------------------------------------------
@@ -406,12 +425,11 @@ std::string handleCommand(const std::string& rawLine) {
         }
 
         std::ostringstream ss;
-        ss << "[";
+        ss << "{\"matches\":[";
         bool first = true;
         int matchCount = 0;
 
         for (int i = 0; i < gMenuItemCount; ++i) {
-            // [MODULE V] String pattern matching and traversal
             if (stringContains(gMenuItems[i].name, query) ||
                 stringContains(gMenuItems[i].category, query)) {
                 if (!first) ss << ",";
@@ -419,18 +437,23 @@ std::string handleCommand(const std::string& rawLine) {
                 first = false;
                 matchCount++;
 
-                // [MODULE VIII] Push to Recently Viewed Dish Stack
                 gRecentlyViewedStack.push(gMenuItems[i].id);
             }
         }
         ss << "]";
 
-        // Character frequency of search term
-        auto charFreq = analyzeCharFrequency(query);
-        std::string freqNote = "Query length: " + std::to_string(query.length()) + ", Distinct chars: " + std::to_string(charFreq.size());
+        // [MODULE V] Did You Mean fuzzy suggestion using Levenshtein distance
+        std::string didYouMean = "";
+        if (matchCount == 0 && !query.empty()) {
+            didYouMean = findDidYouMeanSuggestion(query, gMenuItems, gMenuItemCount);
+        }
 
-        return makeResponse(true, "Search found " + std::to_string(matchCount) + " matches (" + freqNote + ")", ss.str(), {
-            "Module V (Strings - Traversal, toLower, containsSubstring)",
+        ss << ",\"didYouMean\":\"" << escapeJSON(didYouMean) << "\""
+           << ",\"matchCount\":" << matchCount
+           << "}";
+
+        return makeResponse(true, "Search completed", ss.str(), {
+            "Module V (Strings - Traversal, toLower, containsSubstring, Levenshtein)",
             "Module VIII (Stack - Recently Viewed Dishes)",
             "Module III (1D Arrays - Linear scan)"
         });
@@ -448,10 +471,10 @@ std::string handleCommand(const std::string& rawLine) {
 
         bool ok = addToCartInternal(itemId, quantity, true);
         if (!ok) {
-            return makeResponse(false, "Failed to add to cart: check stock or cart capacity limit.", "{}", {"Module VIII (Stack)", "Module I (Basics)"});
+            return makeResponse(false, "Could not add item: out of stock or cart limit reached.", "{}", {"Module VIII (Stack)", "Module I (Basics)"});
         }
 
-        return makeResponse(true, "Added item to cart", cartToJSON(), {
+        return makeResponse(true, "Item added to your order", cartToJSON(), {
             "Module VIII (Stack - push action for undo)",
             "Module VI (Structures - CartItem)",
             "Module I (Basics - price calculation)"
@@ -468,9 +491,9 @@ std::string handleCommand(const std::string& rawLine) {
         int itemId = std::stoi(tokens[1]);
         bool ok = removeFromCartInternal(itemId, true);
         if (!ok) {
-            return makeResponse(false, "Item not found in cart", "{}", {"Module II (Control)"});
+            return makeResponse(false, "Item not found in order", "{}", {"Module II (Control)"});
         }
-        return makeResponse(true, "Removed item from cart", cartToJSON(), {
+        return makeResponse(true, "Item removed from order", cartToJSON(), {
             "Module VIII (Stack - push removal action for undo)",
             "Module III (1D Arrays - array shifting)"
         });
@@ -487,7 +510,7 @@ std::string handleCommand(const std::string& rawLine) {
                 "Module VIII (Stack - pop underflow guard)"
             });
         }
-        return makeResponse(true, "Undo successful: " + actionDesc, cartToJSON(), {
+        return makeResponse(true, actionDesc, cartToJSON(), {
             "Module VIII (Stack - pop & reverse action)",
             "Module VI (Structures - CartAction)",
             "Module X (STL - std::stack synchronizer)"
@@ -495,12 +518,12 @@ std::string handleCommand(const std::string& rawLine) {
     }
 
     // ------------------------------------------------------------------------
-    // CART_VIEW
+    // CART_VIEW [zoneId] [isExpress]
     // ------------------------------------------------------------------------
     if (cmd == "CART_VIEW") {
         int zone = (tokens.size() > 1) ? std::stoi(tokens[1]) : 0;
         bool express = (tokens.size() > 2) ? (tokens[2] == "1" || tokens[2] == "true") : false;
-        return makeResponse(true, "Current cart state", cartToJSON(zone, express), {
+        return makeResponse(true, "Current order summary", cartToJSON(zone, express), {
             "Module I (Basics - tax, subtotal, delivery calculation)",
             "Module IV (2D Arrays - zone distance lookup)",
             "Module VI (Structures - CartItem)"
@@ -516,7 +539,7 @@ std::string handleCommand(const std::string& rawLine) {
         gActiveCouponCode = "";
         gActiveDiscountPercent = 0.0;
         gActiveDiscountFlat = 0.0;
-        return makeResponse(true, "Cart and undo stack cleared", cartToJSON(), {
+        return makeResponse(true, "Cart cleared", cartToJSON(), {
             "Module VIII (Stack - clear)",
             "Module III (1D Arrays - reset count)"
         });
@@ -527,59 +550,54 @@ std::string handleCommand(const std::string& rawLine) {
     // ------------------------------------------------------------------------
     if (cmd == "APPLY_COUPON") {
         if (tokens.size() < 2) {
-            return makeResponse(false, "Usage: APPLY_COUPON <code>", "{}", {"Module II (Control)"});
+            return makeResponse(false, "Please provide a coupon code", "{}", {"Module II (Control)"});
         }
         std::string rawCode = tokens[1];
-        std::string code = toLowerString(rawCode);
         std::string upperCode = "";
         for (char c : rawCode) upperCode += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
 
-        // [MODULE X] STL map coupon lookup
         double discountPct = 0.0;
         bool found = gSTLManager.getCouponDiscount(upperCode, discountPct);
 
-        // [MODULE V] String Reversal: Palindrome Coupon Bonus!
-        // E.g. "RACECAR", "LEVEL", "RADAR"
+        // [MODULE V] String Reversal for Palindrome Promo Bonus
         std::string revCode = reverseString(upperCode);
         bool isPalindrome = (upperCode.length() >= 3 && upperCode == revCode);
 
         if (found || isPalindrome) {
             if (isPalindrome && !found) {
-                // Special 15% VIP Palindrome discount
-                discountPct = 15.0;
-                upperCode += " (Palindrome Bonus!)";
+                discountPct = 15.0; // 15% VIP Palindrome bonus
+                upperCode += " (Palindrome Bonus)";
             } else if (isPalindrome && found) {
-                discountPct += 10.0; // Bonus 10% on top!
-                upperCode += " + Palindrome VIP (+10%)";
+                discountPct += 10.0; // Additional 10% bonus
+                upperCode += " + Palindrome (+10%)";
             }
             gActiveCouponCode = upperCode;
             gActiveDiscountPercent = discountPct;
 
             std::ostringstream ss;
             ss << "{\"coupon\":\"" << upperCode << "\",\"discountPercent\":" << discountPct << "}";
-            return makeResponse(true, "Coupon applied: " + std::to_string(static_cast<int>(discountPct)) + "% OFF!", ss.str(), {
+            return makeResponse(true, "Promotion applied: " + std::to_string(static_cast<int>(discountPct)) + "% OFF", ss.str(), {
                 "Module X (STL - std::map lookup)",
                 "Module V (Strings - reverseString palindrome check)",
                 "Module I (Basics - percentage discount)"
             });
         }
 
-        return makeResponse(false, "Invalid coupon code. Try FOODRUSH10, WELCOME20, SUPER50, or a palindrome like LEVEL", "{}", {
+        return makeResponse(false, "Invalid coupon code. Try FIRST50, WELCOME10, or FREEDEL.", "{}", {
             "Module X (STL - std::map::find)",
             "Module V (Strings - reverseString)"
         });
     }
 
     // ------------------------------------------------------------------------
-    // [MODULE VI], [MODULE IX], [MODULE IV] CHECKOUT
+    // [MODULE VI], [MODULE IX], [MODULE IV], [MODULE V] CHECKOUT
     // ------------------------------------------------------------------------
     if (cmd == "CHECKOUT") {
-        // CHECKOUT <customerName> <zoneId> <street> <isExpress>
         if (tokens.size() < 4) {
             return makeResponse(false, "Usage: CHECKOUT <name> <zoneId> <street> [isExpress]", "{}", {"Module II (Control)"});
         }
         if (gCartCount == 0) {
-            return makeResponse(false, "Cannot checkout: Cart is empty", "{}", {"Module II (Control)"});
+            return makeResponse(false, "Cannot checkout: your cart is empty", "{}", {"Module II (Control)"});
         }
 
         std::string customerName = tokens[1];
@@ -589,27 +607,33 @@ std::string handleCommand(const std::string& rawLine) {
 
         if (zoneId < 0 || zoneId >= MAX_ZONES) zoneId = 0;
 
-        // Calculate final order values
         double subtotal = 0.0, tax = 0.0, delFee = 0.0, discount = 0.0, total = 0.0;
         calculateCartTotals(subtotal, tax, delFee, discount, total, zoneId, isExpress);
 
         int restId = gCartItems[0].restaurantId;
         const Restaurant* rest = findRestaurantById(restId);
         int restZone = rest ? rest->zoneId : 0;
+        std::string restName = rest ? rest->name : "Partner Kitchen";
         int estimatedMins = 0;
         double dummyFee = 0.0;
         SalesMatrixManager::calculateDelivery(restZone, zoneId, isExpress, dummyFee, estimatedMins);
 
+        int orderId = gNextOrderId++;
+
+        // [MODULE V] Generate verified tracking code with check digit using string reversal
+        std::string trackingCode = generateTrackingCode(orderId);
+
         // [MODULE VI] Build Order Struct
         Order newOrder;
-        newOrder.orderId = gNextOrderId++;
+        newOrder.orderId = orderId;
+        newOrder.trackingCode = trackingCode;
         newOrder.restaurantId = restId;
+        newOrder.restaurantName = restName;
         newOrder.customerName = customerName;
-        newOrder.deliveryAddress = {street, zoneId, "90210", ""};
+        newOrder.deliveryAddress = {street, zoneId, "", ""};
         newOrder.itemCount = gCartCount;
         for (int i = 0; i < gCartCount; ++i) {
             newOrder.items[i] = gCartItems[i];
-            // Deduct stock in 1D array
             MenuItem* m = findMenuItemByIdMutable(gCartItems[i].itemId);
             if (m && m->stock >= gCartItems[i].quantity) {
                 m->stock -= gCartItems[i].quantity;
@@ -623,41 +647,176 @@ std::string handleCommand(const std::string& rawLine) {
         newOrder.isExpress = isExpress;
         newOrder.status = "PLACED";
         newOrder.assignedRiderId = -1;
-        newOrder.riderName = "Pending Kitchen";
+        newOrder.riderName = "Assigning delivery partner";
         newOrder.estimatedMinutes = estimatedMins;
 
-        // Save order to history
+        // [MODULE IX] Circular Queue Enqueue for Kitchen Orders
+        gKitchenQueue.enqueue(newOrder.orderId);
+        gPriorityOrderQueue.enqueue(newOrder.orderId, isExpress);
+        gSTLManager.enqueueOrder(newOrder.orderId);
+
+        newOrder.queuePosition = getOrderQueuePosition(orderId);
+
         if (gOrderCount < MAX_ORDERS_HISTORY) {
             gOrders[gOrderCount++] = newOrder;
         }
 
-        // [MODULE IX] Circular Queue Enqueue for Kitchen Orders
-        gKitchenQueue.enqueue(newOrder.orderId);
-
-        // [MODULE IX] Priority Order Queue (Express orders jump ahead!)
-        gPriorityOrderQueue.enqueue(newOrder.orderId, isExpress);
-
-        // [MODULE X] Enqueue into STL Queue version
-        gSTLManager.enqueueOrder(newOrder.orderId);
-
         // [MODULE IV] Record live sale into 2D Sales Matrix
-        int restaurantIndex = restId - 1; // 1-indexed to 0-indexed
-        int todayDayIndex = 6; // Sunday/Current live day
-        gSalesMatrix.recordSale(restaurantIndex, todayDayIndex, total);
+        int restaurantIndex = restId - 1;
+        if (restaurantIndex >= 0 && restaurantIndex < MAX_RESTAURANTS) {
+            gSalesMatrix.recordSale(restaurantIndex, 6, total);
+        }
 
-        // Clear cart after successful checkout
+        // Reset cart after checkout
         gCartCount = 0;
         gUndoStack.clear();
         gActiveCouponCode = "";
         gActiveDiscountPercent = 0.0;
         gActiveDiscountFlat = 0.0;
 
-        return makeResponse(true, "Order #" + std::to_string(newOrder.orderId) + " placed successfully and sent to Kitchen Queue!", newOrder.toJSON(), {
+        return makeResponse(true, "Order placed successfully! Tracking code: " + trackingCode, newOrder.toJSON(), {
             "Module VI (Structures - Nested Order & Address)",
             "Module IX (Queue - Circular & Priority Enqueue)",
+            "Module V (Strings - Tracking code check-digit via string reversal)",
             "Module IV (2D Arrays - Sales Matrix update & Distance fee)",
             "Module I (Basics - Bill & tax calculation)",
             "Module III (1D Arrays - Stock deduction)"
+        });
+    }
+
+    // ------------------------------------------------------------------------
+    // TRACK_ORDER <orderIdOrCode>
+    // ------------------------------------------------------------------------
+    if (cmd == "TRACK_ORDER") {
+        if (tokens.size() < 2) {
+            return makeResponse(false, "Usage: TRACK_ORDER <orderIdOrCode>", "{}", {"Module II (Control)"});
+        }
+        std::string query = tokens[1];
+        Order* target = nullptr;
+
+        // Try lookup by numeric order ID
+        try {
+            int id = std::stoi(query);
+            target = findOrderById(id);
+        } catch (...) {
+            // Lookup by tracking code
+            for (int i = 0; i < gOrderCount; ++i) {
+                if (gOrders[i].trackingCode == query) {
+                    target = &gOrders[i];
+                    break;
+                }
+            }
+        }
+
+        if (!target) {
+            // Return most recent order if available
+            if (gOrderCount > 0) {
+                target = &gOrders[gOrderCount - 1];
+            } else {
+                return makeResponse(false, "Order not found", "{}", {"Module II (Control)"});
+            }
+        }
+
+        target->queuePosition = getOrderQueuePosition(target->orderId);
+
+        // [MODULE V] Verify tracking code check digit
+        bool isTrackingValid = validateTrackingCode(target->trackingCode);
+
+        std::ostringstream ss;
+        ss << "{"
+           << "\"order\":" << target->toJSON() << ","
+           << "\"trackingCodeVerified\":" << (isTrackingValid ? "true" : "false")
+           << "}";
+
+        return makeResponse(true, "Tracking details for order #" + std::to_string(target->orderId), ss.str(), {
+            "Module V (Strings - Tracking code verification via reversal)",
+            "Module IX (Queue - Live circular queue position inspection)",
+            "Module VI (Structures - Order)"
+        });
+    }
+
+    // ------------------------------------------------------------------------
+    // SIMULATE_NEXT_STAGE [orderId] (Step order to next stage for customer tracking)
+    // ------------------------------------------------------------------------
+    if (cmd == "SIMULATE_NEXT_STAGE") {
+        Order* target = nullptr;
+        if (tokens.size() > 1) {
+            int ordId = std::stoi(tokens[1]);
+            target = findOrderById(ordId);
+        } else if (gOrderCount > 0) {
+            target = &gOrders[gOrderCount - 1]; // Latest order
+        }
+
+        if (!target) {
+            return makeResponse(false, "No active order to advance", "{}", {"Module II (Control)"});
+        }
+
+        std::string prevStatus = target->status;
+        std::string newStatus = prevStatus;
+
+        if (prevStatus == "PLACED") {
+            // Move to PREPARING (kitchen begins)
+            target->status = "PREPARING";
+            target->riderName = "Chef is preparing your meal";
+            newStatus = "PREPARING";
+        } else if (prevStatus == "PREPARING") {
+            // Kitchen finishes: dequeue from kitchen queue and assign rider
+            int dummyId = 0;
+            bool wasExpress = false;
+            gPriorityOrderQueue.dequeue(dummyId, wasExpress);
+            gKitchenQueue.dequeue(dummyId);
+            gSTLManager.dequeueOrder(dummyId);
+
+            // Assign rider
+            int riderId = -1;
+            if (!gAvailableRiderQueue.dequeue(riderId)) {
+                for (int i = 0; i < gRiderCount; ++i) {
+                    if (gRiders[i].isAvailable) {
+                        riderId = gRiders[i].id;
+                        break;
+                    }
+                }
+            }
+
+            Rider* r = nullptr;
+            for (int i = 0; i < gRiderCount; ++i) {
+                if (gRiders[i].id == riderId) {
+                    r = &gRiders[i];
+                    r->isAvailable = false;
+                    break;
+                }
+            }
+
+            target->status = "OUT_FOR_DELIVERY";
+            target->assignedRiderId = riderId;
+            target->riderName = r ? (r->name + " (" + r->vehicle + ")") : "Delivery Partner";
+            target->estimatedMinutes = target->isExpress ? 10 : 18;
+            newStatus = "OUT_FOR_DELIVERY";
+        } else if (prevStatus == "OUT_FOR_DELIVERY") {
+            // Deliver order: free up rider and return to circular queue
+            target->status = "DELIVERED";
+            target->estimatedMinutes = 0;
+
+            if (target->assignedRiderId != -1) {
+                for (int i = 0; i < gRiderCount; ++i) {
+                    if (gRiders[i].id == target->assignedRiderId) {
+                        gRiders[i].isAvailable = true;
+                        gRiders[i].totalDeliveries++;
+                        gAvailableRiderQueue.enqueue(gRiders[i].id); // Return to rotation
+                        break;
+                    }
+                }
+            }
+            gSTLManager.recordCompletedOrder(target->orderId);
+            newStatus = "DELIVERED";
+        }
+
+        target->queuePosition = getOrderQueuePosition(target->orderId);
+
+        return makeResponse(true, "Order #" + std::to_string(target->orderId) + " transitioned to: " + newStatus, target->toJSON(), {
+            "Module IX (Queue - Circular Queue dequeue & Rider rotation)",
+            "Module VI (Structures - Order state transition)",
+            "Module X (STL - std::deque completed orders)"
         });
     }
 
@@ -671,84 +830,64 @@ std::string handleCommand(const std::string& rawLine) {
            << "\"priorityQueueSize\":" << gPriorityOrderQueue.totalSize() << ","
            << "\"expressQueueSize\":" << gPriorityOrderQueue.expressSize() << ","
            << "\"orders\":[";
-        for (int i = gOrderCount - 1; i >= 0; --i) { // Most recent first
+        for (int i = gOrderCount - 1; i >= 0; --i) {
             ss << gOrders[i].toJSON();
             if (i > 0) ss << ",";
         }
         ss << "]}";
-        return makeResponse(true, "Fetched orders and kitchen queue state", ss.str(), {
+        return makeResponse(true, "Fetched orders", ss.str(), {
             "Module IX (Queue - CircularQueue size & peek)",
             "Module VI (Structures - Order[])"
         });
     }
 
     // ------------------------------------------------------------------------
-    // [MODULE IX] COOK_ORDER [orderId]
+    // COOK_ORDER
     // ------------------------------------------------------------------------
     if (cmd == "COOK_ORDER") {
         int orderId = -1;
         if (tokens.size() > 1) {
             orderId = std::stoi(tokens[1]);
         } else {
-            // Dequeue next order from priority queue
             bool wasExpress = false;
             if (!gPriorityOrderQueue.dequeue(orderId, wasExpress)) {
-                return makeResponse(false, "Kitchen queue is empty. No orders to cook!", "{}", {"Module IX (Queue)"});
+                return makeResponse(false, "Kitchen queue is empty", "{}", {"Module IX (Queue)"});
             }
-            // Also dequeue from circular queue
             int circId = -1;
             gKitchenQueue.dequeue(circId);
-            // Also dequeue from STL queue
             int stlId = -1;
             gSTLManager.dequeueOrder(stlId);
         }
 
-        // Find and update order status
-        Order* targetOrder = nullptr;
-        for (int i = 0; i < gOrderCount; ++i) {
-            if (gOrders[i].orderId == orderId) {
-                targetOrder = &gOrders[i];
-                break;
-            }
-        }
-
+        Order* targetOrder = findOrderById(orderId);
         if (!targetOrder) {
             return makeResponse(false, "Order not found", "{}", {"Module II (Control)"});
         }
 
         targetOrder->status = "READY_FOR_PICKUP";
-        targetOrder->riderName = "Waiting for Rider Dispatch";
+        targetOrder->riderName = "Awaiting delivery partner pickup";
 
-        return makeResponse(true, "Kitchen finished cooking Order #" + std::to_string(orderId) + ". Ready for rider assignment!", targetOrder->toJSON(), {
-            "Module IX (Queue - dequeue from Circular & Priority Queue)",
-            "Module VI (Structures - Order status update)",
-            "Module X (STL - std::queue dequeue)"
+        return makeResponse(true, "Order #" + std::to_string(orderId) + " prepared by kitchen", targetOrder->toJSON(), {
+            "Module IX (Queue - Circular Queue dequeue)",
+            "Module VI (Structures - Order status update)"
         });
     }
 
     // ------------------------------------------------------------------------
-    // [MODULE IX] ASSIGN_RIDER [orderId]
+    // ASSIGN_RIDER
     // ------------------------------------------------------------------------
     if (cmd == "ASSIGN_RIDER") {
         if (tokens.size() < 2) {
             return makeResponse(false, "Usage: ASSIGN_RIDER <orderId>", "{}", {"Module II (Control)"});
         }
         int orderId = std::stoi(tokens[1]);
-        Order* targetOrder = nullptr;
-        for (int i = 0; i < gOrderCount; ++i) {
-            if (gOrders[i].orderId == orderId) {
-                targetOrder = &gOrders[i];
-                break;
-            }
-        }
+        Order* targetOrder = findOrderById(orderId);
         if (!targetOrder) {
             return makeResponse(false, "Order not found", "{}", {"Module II (Control)"});
         }
 
-        // [MODULE IX] Dequeue available rider from Rider Circular Queue
         int riderId = -1;
         if (!gAvailableRiderQueue.dequeue(riderId)) {
-            // Find any available rider in 1D array
             for (int i = 0; i < gRiderCount; ++i) {
                 if (gRiders[i].isAvailable) {
                     riderId = gRiders[i].id;
@@ -758,7 +897,7 @@ std::string handleCommand(const std::string& rawLine) {
         }
 
         if (riderId == -1) {
-            return makeResponse(false, "No riders available right now. Wait for an active rider to complete delivery.", "{}", {"Module IX (Queue)"});
+            return makeResponse(false, "All delivery partners are currently busy", "{}", {"Module IX (Queue)"});
         }
 
         Rider* assignedRider = nullptr;
@@ -776,50 +915,42 @@ std::string handleCommand(const std::string& rawLine) {
             targetOrder->status = "OUT_FOR_DELIVERY";
         }
 
-        return makeResponse(true, "Rider assigned: " + targetOrder->riderName + " is on the way!", targetOrder->toJSON(), {
+        return makeResponse(true, "Delivery partner assigned: " + targetOrder->riderName, targetOrder->toJSON(), {
             "Module IX (Queue - Circular Rider Queue rotation)",
             "Module VI (Structures - Rider & Order linkage)"
         });
     }
 
     // ------------------------------------------------------------------------
-    // COMPLETE_ORDER <orderId>
+    // COMPLETE_ORDER
     // ------------------------------------------------------------------------
     if (cmd == "COMPLETE_ORDER") {
         if (tokens.size() < 2) {
             return makeResponse(false, "Usage: COMPLETE_ORDER <orderId>", "{}", {"Module II (Control)"});
         }
         int orderId = std::stoi(tokens[1]);
-        Order* targetOrder = nullptr;
-        for (int i = 0; i < gOrderCount; ++i) {
-            if (gOrders[i].orderId == orderId) {
-                targetOrder = &gOrders[i];
-                break;
-            }
-        }
+        Order* targetOrder = findOrderById(orderId);
         if (!targetOrder) {
             return makeResponse(false, "Order not found", "{}", {"Module II (Control)"});
         }
 
         targetOrder->status = "DELIVERED";
+        targetOrder->estimatedMinutes = 0;
 
-        // Free up the rider and return to Circular Queue
         if (targetOrder->assignedRiderId != -1) {
             for (int i = 0; i < gRiderCount; ++i) {
                 if (gRiders[i].id == targetOrder->assignedRiderId) {
                     gRiders[i].isAvailable = true;
                     gRiders[i].totalDeliveries++;
-                    // [MODULE IX] Return rider to circular queue
                     gAvailableRiderQueue.enqueue(gRiders[i].id);
                     break;
                 }
             }
         }
 
-        // [MODULE X] Record to STL deque of completed orders
         gSTLManager.recordCompletedOrder(orderId);
 
-        return makeResponse(true, "Order #" + std::to_string(orderId) + " delivered successfully!", targetOrder->toJSON(), {
+        return makeResponse(true, "Order #" + std::to_string(orderId) + " delivered successfully", targetOrder->toJSON(), {
             "Module IX (Queue - Return rider to Circular Queue)",
             "Module X (STL - std::deque completed orders)",
             "Module VI (Structures - Status update)"
@@ -837,7 +968,7 @@ std::string handleCommand(const std::string& rawLine) {
             if (i < gRiderCount - 1) ss << ",";
         }
         ss << "]";
-        return makeResponse(true, "Fetched delivery riders", ss.str(), {
+        return makeResponse(true, "Fetched delivery fleet", ss.str(), {
             "Module VI (Structures - Rider)",
             "Module III (1D Arrays - riders[])",
             "Module IX (Queue - available rider tracking)"
@@ -848,8 +979,8 @@ std::string handleCommand(const std::string& rawLine) {
     // [MODULE IV] GET_SALES_MATRIX
     // ------------------------------------------------------------------------
     if (cmd == "GET_SALES_MATRIX") {
-        return makeResponse(true, "7-Day Sales Matrix and Analytics", gSalesMatrix.toJSON(), {
-            "Module IV (2D Arrays - sales[4][7] row/col sums)",
+        return makeResponse(true, "Weekly sales matrix and metrics", gSalesMatrix.toJSON(), {
+            "Module IV (2D Arrays - sales[6][7] row/col sums)",
             "Module IV (2D Arrays - zone distance matrix[5][5])"
         });
     }
@@ -858,7 +989,6 @@ std::string handleCommand(const std::string& rawLine) {
     // [MODULE III] GET_ARRAY_STATS
     // ------------------------------------------------------------------------
     if (cmd == "GET_ARRAY_STATS") {
-        // Extract 1D arrays for ratings, prices, and stock
         double ratings[MAX_RESTAURANTS];
         for (int i = 0; i < gRestaurantCount; ++i) {
             ratings[i] = gRestaurants[i].rating;
@@ -871,7 +1001,6 @@ std::string handleCommand(const std::string& rawLine) {
             stocks[i] = gMenuItems[i].stock;
         }
 
-        // Operations
         int maxRatingIdx = 0, minRatingIdx = 0;
         double maxRating = findArrayMax(ratings, gRestaurantCount, maxRatingIdx);
         double minRating = findArrayMin(ratings, gRestaurantCount, minRatingIdx);
@@ -883,7 +1012,6 @@ std::string handleCommand(const std::string& rawLine) {
         double totalPriceSum = calculateArraySum(prices, gMenuItemCount);
         double avgPrice = totalPriceSum / gMenuItemCount;
 
-        // Bubble sort a copy of the prices array
         double sortedPrices[MAX_TOTAL_ITEMS];
         for (int i = 0; i < gMenuItemCount; ++i) sortedPrices[i] = prices[i];
         bubbleSortArray(sortedPrices, gMenuItemCount);
@@ -904,7 +1032,7 @@ std::string handleCommand(const std::string& rawLine) {
            << sortedPrices[gMenuItemCount-1] << "]"
            << "}"
            << "}";
-        return makeResponse(true, "1D Array Statistics Calculated", ss.str(), {
+        return makeResponse(true, "Catalog statistical operations complete", ss.str(), {
             "Module III (1D Arrays - Sum, Min, Max, Traversal)",
             "Module III (1D Arrays - Bubble Sort on prices)",
             "Module I (Basics - floating point division)"
@@ -916,7 +1044,7 @@ std::string handleCommand(const std::string& rawLine) {
     // ------------------------------------------------------------------------
     if (cmd == "BENCHMARK") {
         std::string benchJSON = PerformanceBenchmark::runFullBenchmark();
-        return makeResponse(true, "Performance Benchmark Complete: Linear vs Binary Search, Bubble vs Introsort", benchJSON, {
+        return makeResponse(true, "Performance benchmark completed", benchJSON, {
             "Module VII (Performance - O(N) vs O(log N) Search)",
             "Module VII (Performance - O(N^2) vs O(N log N) Sort)",
             "Module VII (Performance - Time/Space Asymptotic Complexity)"
@@ -929,7 +1057,7 @@ std::string handleCommand(const std::string& rawLine) {
     if (cmd == "COMPARE_DS") {
         int iters = (tokens.size() > 1) ? std::stoi(tokens[1]) : 50000;
         std::string compJSON = gSTLManager.compareDataStructures(iters);
-        return makeResponse(true, "Live Comparison: Hand-crafted Array Stack/Queue vs STL Stack/Queue", compJSON, {
+        return makeResponse(true, "Data structure comparison completed", compJSON, {
             "Module X (STL - std::stack, std::queue, std::deque)",
             "Module VIII (Stack - ArrayStack direct comparison)",
             "Module IX (Queue - CircularQueue direct comparison)",
@@ -995,7 +1123,7 @@ std::string handleCommand(const std::string& rawLine) {
            << "\"dailySpecialPairs\":" << gSTLManager.getDailySpecials().size()
            << "}"
            << "}";
-        return makeResponse(true, "Engine Data Structure Inspector snapshot", ss.str(), {
+        return makeResponse(true, "Internal state snapshot generated", ss.str(), {
             "Module VIII (Stack - Raw array memory layout inspection)",
             "Module IX (Queue - Circular buffer front/rear pointers)",
             "Module X (STL - Map/Set/Pair inspection)"
@@ -1006,34 +1134,35 @@ std::string handleCommand(const std::string& rawLine) {
     // HELP
     // ------------------------------------------------------------------------
     if (cmd == "HELP") {
-        return makeResponse(true, "Available Commands: PING, GET_RESTAURANTS, GET_MENU [id], SEARCH_DISH <query>, CART_ADD <id> <qty>, CART_REMOVE <id>, CART_UNDO, CART_VIEW, CART_CLEAR, APPLY_COUPON <code>, CHECKOUT <name> <zoneId> <street> [express], GET_ORDERS, COOK_ORDER [id], ASSIGN_RIDER <id>, COMPLETE_ORDER <id>, GET_RIDERS, GET_SALES_MATRIX, GET_ARRAY_STATS, BENCHMARK, COMPARE_DS, INSPECT_ENGINE, HELP", "{}", {"Module II (Control)"});
+        return makeResponse(true, "Available Commands: PING, GET_RESTAURANTS, GET_MENU [id], SEARCH_DISH <query>, CART_ADD <id> <qty>, CART_REMOVE <id>, CART_UNDO, CART_VIEW, CART_CLEAR, APPLY_COUPON <code>, CHECKOUT <name> <zoneId> <street> [express], TRACK_ORDER <idOrCode>, SIMULATE_NEXT_STAGE [id], GET_ORDERS, COOK_ORDER [id], ASSIGN_RIDER <id>, COMPLETE_ORDER <id>, GET_RIDERS, GET_SALES_MATRIX, GET_ARRAY_STATS, BENCHMARK, COMPARE_DS, INSPECT_ENGINE, HELP", "{}", {"Module II (Control)"});
     }
 
     return makeResponse(false, "Unknown command: " + cmd + ". Type HELP for list.", "{}", {"Module II (Control)"});
 }
 
 // ============================================================================
-// INTERACTIVE CLI CONSOLE MENU (For Live Professor Terminal Demo)
+// INTERACTIVE CLI CONSOLE MENU (Terminal Examiner Mode)
 // ============================================================================
 void runInteractiveCLI() {
     std::cout << "\n======================================================\n";
     std::cout << "         FOODRUSH - C++ CORE DELIVERY SYSTEM          \n";
-    std::cout << "     Academic Pair Programming & Viva Demo Console    \n";
+    std::cout << "         Academic & Technical Console Session         \n";
     std::cout << "======================================================\n";
 
     while (true) {
-        std::cout << "\n--- MAIN MENU ---\n";
-        std::cout << "1. Browse Restaurants & Menu    [Modules III, VI]\n";
-        std::cout << "2. Search Dishes (String Algo)  [Module V]\n";
-        std::cout << "3. View Cart & Test Undo Stack  [Module VIII]\n";
-        std::cout << "4. Kitchen & Rider Queue        [Module IX]\n";
-        std::cout << "5. 7-Day Sales Matrix & Distances [Module IV]\n";
-        std::cout << "6. 1D Array Statistics & Sort   [Module III]\n";
-        std::cout << "7. Run Performance Benchmarks   [Module VII]\n";
-        std::cout << "8. Compare Array DS vs STL      [Module X]\n";
-        std::cout << "9. Data Structure Live Inspector [All Modules]\n";
+        std::cout << "\n--- MAIN CONSOLE MENU ---\n";
+        std::cout << "1. Browse Restaurants & Menu      [Modules III, VI]\n";
+        std::cout << "2. Search Dishes with Fuzzy Match [Module V]\n";
+        std::cout << "3. Manage Cart & Test Stack Undo  [Module VIII]\n";
+        std::cout << "4. Track Order & Verify Reversal  [Module V, IX]\n";
+        std::cout << "5. Kitchen Queue & Rider Rotation [Module IX]\n";
+        std::cout << "6. 6x7 Sales Matrix & Distances   [Module IV]\n";
+        std::cout << "7. 1D Array Statistics & Sort     [Module III]\n";
+        std::cout << "8. Run Asymptotic Benchmarks      [Module VII]\n";
+        std::cout << "9. Compare Array DS vs STL        [Module X]\n";
+        std::cout << "10. Live Memory Inspector         [Modules VIII, IX]\n";
         std::cout << "0. Exit Console\n";
-        std::cout << "Select option (0-9): ";
+        std::cout << "Select option (0-10): ";
 
         int choice = -1;
         if (!(std::cin >> choice)) {
@@ -1046,15 +1175,16 @@ void runInteractiveCLI() {
         std::cin.ignore(1000, '\n');
 
         if (choice == 0) {
-            std::cout << "Exiting FoodRush CLI.\n";
+            std::cout << "Exiting FoodRush Console.\n";
             break;
         } else if (choice == 1) {
             std::cout << "\n--- RESTAURANTS ---\n";
             for (int i = 0; i < gRestaurantCount; ++i) {
                 std::cout << "[" << gRestaurants[i].id << "] " << gRestaurants[i].name
-                          << " (" << gRestaurants[i].cuisine << ") | Rating: " << gRestaurants[i].rating << "/5.0\n";
+                          << " (" << gRestaurants[i].cuisine << ") | Rating: " << gRestaurants[i].rating
+                          << "/5.0 | Min: " << formatCurrency(gRestaurants[i].minOrder) << "\n";
             }
-            std::cout << "\nEnter restaurant ID to view menu (or 0 for all): ";
+            std::cout << "\nEnter restaurant ID to view menu (0 for all): ";
             int rId = 0;
             std::cin >> rId;
             std::cout << "\n--- DISHES ---\n";
@@ -1067,23 +1197,22 @@ void runInteractiveCLI() {
                 }
             }
         } else if (choice == 2) {
-            std::cout << "Enter dish search query: ";
+            std::cout << "Enter search query: ";
             std::string q;
             std::getline(std::cin, q);
-            std::string resp = handleCommand("SEARCH_DISH " + q);
-            std::cout << "\nEngine Result:\n" << resp << "\n";
+            std::cout << handleCommand("SEARCH_DISH " + q) << "\n";
         } else if (choice == 3) {
-            std::cout << "\n1. Add item to cart\n2. Remove item\n3. UNDO last action (Stack Pop)\n4. View Cart\nChoose: ";
+            std::cout << "\n1. Add item\n2. Remove item\n3. UNDO last action (Stack Pop)\n4. View cart\nChoose: ";
             int sub = 0;
             std::cin >> sub;
             if (sub == 1) {
                 int id, qty;
-                std::cout << "Enter Item ID: "; std::cin >> id;
-                std::cout << "Enter Quantity: "; std::cin >> qty;
+                std::cout << "Item ID: "; std::cin >> id;
+                std::cout << "Quantity: "; std::cin >> qty;
                 std::cout << handleCommand("CART_ADD " + std::to_string(id) + " " + std::to_string(qty)) << "\n";
             } else if (sub == 2) {
                 int id;
-                std::cout << "Enter Item ID: "; std::cin >> id;
+                std::cout << "Item ID: "; std::cin >> id;
                 std::cout << handleCommand("CART_REMOVE " + std::to_string(id)) << "\n";
             } else if (sub == 3) {
                 std::cout << handleCommand("CART_UNDO") << "\n";
@@ -1091,28 +1220,33 @@ void runInteractiveCLI() {
                 std::cout << handleCommand("CART_VIEW") << "\n";
             }
         } else if (choice == 4) {
+            std::cout << "Enter Order ID or Tracking Code: ";
+            std::string code;
+            std::getline(std::cin, code);
+            std::cout << handleCommand("TRACK_ORDER " + code) << "\n";
+        } else if (choice == 5) {
             std::cout << handleCommand("GET_ORDERS") << "\n";
-            std::cout << "\n1. Cook Next Order (Queue Dequeue)\n2. Assign Rider\n3. Back\nChoose: ";
+            std::cout << "\n1. Cook Next Order (Queue Dequeue)\n2. Assign Rider\n3. Advance Latest Order\nChoose: ";
             int qsub = 0;
             std::cin >> qsub;
             if (qsub == 1) {
                 std::cout << handleCommand("COOK_ORDER") << "\n";
             } else if (qsub == 2) {
                 int ordId;
-                std::cout << "Enter Order ID: "; std::cin >> ordId;
+                std::cout << "Order ID: "; std::cin >> ordId;
                 std::cout << handleCommand("ASSIGN_RIDER " + std::to_string(ordId)) << "\n";
+            } else if (qsub == 3) {
+                std::cout << handleCommand("SIMULATE_NEXT_STAGE") << "\n";
             }
-        } else if (choice == 5) {
-            std::cout << handleCommand("GET_SALES_MATRIX") << "\n";
         } else if (choice == 6) {
-            std::cout << handleCommand("GET_ARRAY_STATS") << "\n";
+            std::cout << handleCommand("GET_SALES_MATRIX") << "\n";
         } else if (choice == 7) {
-            std::cout << "\nRunning live benchmarks (Please wait a moment)...\n";
-            std::cout << handleCommand("BENCHMARK") << "\n";
+            std::cout << handleCommand("GET_ARRAY_STATS") << "\n";
         } else if (choice == 8) {
-            std::cout << "\nRunning 50,000 pushes/pops on Hand-crafted Array vs STL...\n";
-            std::cout << handleCommand("COMPARE_DS 50000") << "\n";
+            std::cout << handleCommand("BENCHMARK") << "\n";
         } else if (choice == 9) {
+            std::cout << handleCommand("COMPARE_DS 50000") << "\n";
+        } else if (choice == 10) {
             std::cout << handleCommand("INSPECT_ENGINE") << "\n";
         }
     }
@@ -1122,30 +1256,24 @@ void runInteractiveCLI() {
 // MAIN ENTRY POINT
 // ============================================================================
 int main(int argc, char* argv[]) {
-    // Fast I/O
     std::ios_base::sync_with_stdio(false);
     std::cin.tie(NULL);
 
-    // Initialize all seed data into fixed arrays
     initializeSeedData(gRestaurants, gRestaurantCount, gMenuItems, gMenuItemCount, gRiders, gRiderCount);
 
-    // Populate available rider circular queue
     for (int i = 0; i < gRiderCount; ++i) {
         gAvailableRiderQueue.enqueue(gRiders[i].id);
     }
 
-    // Populate dynamic STL vector for Module X demo
     for (int i = 0; i < gMenuItemCount; ++i) {
         gSTLManager.addMenuItem(gMenuItems[i]);
     }
 
-    // Check for interactive CLI mode flag
     if (argc > 1 && (std::string(argv[1]) == "--cli" || std::string(argv[1]) == "-i" || std::string(argv[1]) == "menu")) {
         runInteractiveCLI();
         return 0;
     }
 
-    // Stdin / Stdout Protocol Mode (1 command per line -> 1 JSON per line)
     std::string line;
     while (std::getline(std::cin, line)) {
         if (line.empty()) continue;

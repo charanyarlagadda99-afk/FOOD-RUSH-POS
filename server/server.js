@@ -1,5 +1,5 @@
 // ============================================================================
-// FoodRush - Node.js Bridge Server
+// FoodRush - Node.js Persistent Bridge Server
 // Connects the Web UI to the persistent C++ Engine via stdin/stdout line protocol
 // ============================================================================
 
@@ -9,24 +9,23 @@ const path = require('path');
 const { spawn } = require('child_process');
 const readline = require('readline');
 
-const DEFAULT_PORT = process.env.PORT ? parseInt(process.env.PORT) : 3050;
+const DEFAULT_PORT = process.env.PORT ? parseInt(process.env.PORT) : 3000;
 let currentPort = DEFAULT_PORT;
 const ENGINE_PATH = path.join(__dirname, '..', 'foodrush_engine.exe');
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
-console.log('------------------------------------------------------------');
-console.log('FoodRush Web Bridge Server');
-console.log(`Target C++ Engine: ${ENGINE_PATH}`);
-console.log('------------------------------------------------------------');
+console.log('============================================================');
+console.log('FoodRush Persistent Bridge Server');
+console.log(`Target C++ Engine Binary: ${ENGINE_PATH}`);
+console.log('============================================================');
 
-// Check if engine binary exists
 if (!fs.existsSync(ENGINE_PATH)) {
     console.error(`ERROR: Engine executable not found at ${ENGINE_PATH}`);
-    console.error('Please compile the C++ engine first with g++!');
+    console.error('Please compile the C++ engine first with: g++ -std=c++17 -O2 -static src/main.cpp -o foodrush_engine.exe');
     process.exit(1);
 }
 
-// Spawn the C++ engine as a persistent child process
+// Spawn the C++ engine ONCE as a persistent child process
 const engineProcess = spawn(ENGINE_PATH, [], {
     cwd: path.join(__dirname, '..'),
     stdio: ['pipe', 'pipe', 'inherit']
@@ -40,13 +39,11 @@ engineProcess.on('exit', (code, signal) => {
     console.error(`C++ Engine exited with code ${code}, signal ${signal}`);
 });
 
-// Setup line reader for engine stdout
 const rl = readline.createInterface({
     input: engineProcess.stdout,
     crlfDelay: Infinity
 });
 
-// Command queue to pair 1 sent command to 1 received JSON line safely
 const pendingQueue = [];
 
 rl.on('line', (line) => {
@@ -63,13 +60,12 @@ rl.on('line', (line) => {
                 success: false,
                 message: 'Failed to parse engine JSON response',
                 raw: trimmed,
-                handled_by: ['Module II (Server Line Protocol)']
+                handled_by: ['Server Line Protocol']
             });
         }
     }
 });
 
-// Sends a single line command to the C++ engine and returns a Promise for the response JSON
 function sendEngineCommand(commandString) {
     return new Promise((resolve, reject) => {
         pendingQueue.push({ resolve, reject });
@@ -77,17 +73,17 @@ function sendEngineCommand(commandString) {
     });
 }
 
-// MIME types for serving static frontend files
 const MIME_TYPES = {
     '.html': 'text/html; charset=utf-8',
     '.css': 'text/css; charset=utf-8',
     '.js': 'application/javascript; charset=utf-8',
     '.json': 'application/json; charset=utf-8',
     '.svg': 'image/svg+xml',
-    '.ico': 'image/x-icon'
+    '.ico': 'image/x-icon',
+    '.png': 'image/png',
+    '.woff2': 'font/woff2'
 };
 
-// Request body reader helper
 function readJsonBody(req) {
     return new Promise((resolve) => {
         let body = '';
@@ -102,12 +98,10 @@ function readJsonBody(req) {
     });
 }
 
-// HTTP Server
 const server = http.createServer(async (req, res) => {
-    const parsedUrl = new URL(req.url, `http://${req.headers.host}`);
+    const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
     const pathname = parsedUrl.pathname;
 
-    // Enable CORS for development
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -119,7 +113,7 @@ const server = http.createServer(async (req, res) => {
     }
 
     // ------------------------------------------------------------------------
-    // API ROUTING -> Forward to C++ Engine
+    // REST API ROUTING
     // ------------------------------------------------------------------------
     if (pathname.startsWith('/api/')) {
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
@@ -214,6 +208,23 @@ const server = http.createServer(async (req, res) => {
                 return;
             }
 
+            if (pathname === '/api/track' && req.method === 'GET') {
+                const code = parsedUrl.searchParams.get('code') || '';
+                const resp = await sendEngineCommand(`TRACK_ORDER ${code}`);
+                res.writeHead(200);
+                res.end(JSON.stringify(resp));
+                return;
+            }
+
+            if (pathname === '/api/orders/simulate' && req.method === 'POST') {
+                const data = await readJsonBody(req);
+                const cmd = data.orderId ? `SIMULATE_NEXT_STAGE ${data.orderId}` : 'SIMULATE_NEXT_STAGE';
+                const resp = await sendEngineCommand(cmd);
+                res.writeHead(200);
+                res.end(JSON.stringify(resp));
+                return;
+            }
+
             if (pathname === '/api/orders' && req.method === 'GET') {
                 const resp = await sendEngineCommand('GET_ORDERS');
                 res.writeHead(200);
@@ -275,7 +286,7 @@ const server = http.createServer(async (req, res) => {
             }
 
             if (pathname === '/api/compare-ds' && req.method === 'GET') {
-                const iters = parsedUrl.searchParams.get('iters') || '20000';
+                const iters = parsedUrl.searchParams.get('iters') || '50000';
                 const resp = await sendEngineCommand(`COMPARE_DS ${iters}`);
                 res.writeHead(200);
                 res.end(JSON.stringify(resp));
@@ -289,15 +300,6 @@ const server = http.createServer(async (req, res) => {
                 return;
             }
 
-            if (pathname === '/api/raw' && req.method === 'POST') {
-                const data = await readJsonBody(req);
-                const resp = await sendEngineCommand(data.command || 'HELP');
-                res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
-            }
-
-            // 404 for unknown API
             res.writeHead(404);
             res.end(JSON.stringify({ success: false, message: 'Unknown API endpoint' }));
             return;
@@ -311,9 +313,9 @@ const server = http.createServer(async (req, res) => {
     // ------------------------------------------------------------------------
     // STATIC FILE SERVING
     // ------------------------------------------------------------------------
-    let filePath = path.join(PUBLIC_DIR, pathname === '/' ? 'index.html' : pathname);
+    let targetFile = pathname === '/' || pathname === '/admin' ? 'index.html' : pathname;
+    let filePath = path.join(PUBLIC_DIR, targetFile);
 
-    // Prevent directory traversal
     if (!filePath.startsWith(PUBLIC_DIR)) {
         res.writeHead(403);
         res.end('Access Denied');
@@ -322,9 +324,8 @@ const server = http.createServer(async (req, res) => {
 
     fs.stat(filePath, (err, stats) => {
         if (err || !stats.isFile()) {
-            res.writeHead(404, { 'Content-Type': 'text/plain' });
-            res.end('404 Not Found');
-            return;
+            // Fallback to index.html for SPA client-side routing
+            filePath = path.join(PUBLIC_DIR, 'index.html');
         }
 
         const ext = path.extname(filePath).toLowerCase();
@@ -339,13 +340,15 @@ const server = http.createServer(async (req, res) => {
 function startServer(port) {
     server.listen(port, () => {
         console.log(`FoodRush server running at http://localhost:${port}`);
-        console.log('Press Ctrl+C to stop the server.');
+        console.log(`- Customer Storefront: http://localhost:${port}`);
+        console.log(`- Admin Operations:   http://localhost:${port}#admin`);
+        console.log('Press Ctrl+C to terminate.');
     });
 }
 
 server.on('error', (err) => {
     if (err.code === 'EADDRINUSE') {
-        console.log(`Port ${currentPort} is in use, trying ${currentPort + 1}...`);
+        console.log(`Port ${currentPort} is busy, retrying on port ${currentPort + 1}...`);
         currentPort++;
         startServer(currentPort);
     } else {

@@ -1,6 +1,6 @@
 // ============================================================================
 // FoodRush - Comprehensive Smoke Test Suite
-// Verifies all 10 CS Syllabus Modules end-to-end
+// Verifies all 10 CS Syllabus Modules end-to-end on Upgraded Engine
 // ============================================================================
 
 const { spawn } = require('child_process');
@@ -10,28 +10,30 @@ const readline = require('readline');
 const ENGINE_PATH = path.join(__dirname, '..', 'foodrush_engine.exe');
 
 console.log('================================================================');
-console.log('       FOODRUSH END-TO-END VERIFICATION & SMOKE TEST SUITE       ');
+console.log('       FOODRUSH UPGRADED ENGINE END-TO-END VERIFICATION         ');
 console.log('================================================================\n');
 
 const testCommands = [
     { cmd: 'PING', expectedMod: 'Module I', desc: 'Basics & Protocol' },
-    { cmd: 'GET_RESTAURANTS', expectedMod: 'Module VI', desc: 'Restaurant Struct & 1D Array' },
-    { cmd: 'GET_MENU 1', expectedMod: 'Module I', desc: 'Menu Items & Bitwise Dietary Flags' },
-    { cmd: 'SEARCH_DISH ramen', expectedMod: 'Module V', desc: 'String Traversal & Pattern Matching' },
-    { cmd: 'CART_ADD 101 2', expectedMod: 'Module VIII', desc: 'Stack Push on Cart Action' },
-    { cmd: 'CART_ADD 102 1', expectedMod: 'Module VIII', desc: 'Stack Push multiple items' },
-    { cmd: 'CART_VIEW 1 1', expectedMod: 'Module IV', desc: '2D Zone Distance Fee & Bill Math' },
-    { cmd: 'CART_UNDO', expectedMod: 'Module VIII', desc: 'Stack Pop & Reversion' },
-    { cmd: 'APPLY_COUPON LEVEL', expectedMod: 'Module V', desc: 'Palindrome Bonus & std::map Lookup' },
-    { cmd: 'CHECKOUT Bob 1 101_Baker_St 1', expectedMod: 'Module IX', desc: 'Checkout, Order Struct & Priority Queue' },
-    { cmd: 'GET_ORDERS', expectedMod: 'Module IX', desc: 'Circular Queue & Order History' },
-    { cmd: 'COOK_ORDER', expectedMod: 'Module IX', desc: 'Queue Dequeue on Kitchen Prep' },
-    { cmd: 'ASSIGN_RIDER 1001', expectedMod: 'Module IX', desc: 'Circular Rider Queue Rotation' },
-    { cmd: 'COMPLETE_ORDER 1001', expectedMod: 'Module X', desc: 'Order Delivery & STL deque' },
-    { cmd: 'GET_SALES_MATRIX', expectedMod: 'Module IV', desc: '2D Matrix: Row/Col Sums & Peak Analysis' },
+    { cmd: 'GET_RESTAURANTS', expectedMod: 'Module VI', desc: '6 Restaurants & 1D Array' },
+    { cmd: 'GET_MENU 1', expectedMod: 'Module I', desc: '8 Dishes per Kitchen & Bitwise Dietary Flags' },
+    { cmd: 'SEARCH_DISH biryani', expectedMod: 'Module V', desc: 'Case-Insensitive Substring Match' },
+    { cmd: 'SEARCH_DISH biryany', expectedMod: 'Module V', desc: 'Levenshtein "Did You Mean" Fuzzy Search' },
+    { cmd: 'CART_ADD 101 2', expectedMod: 'Module VIII', desc: 'ArrayStack Push on Cart Action' },
+    { cmd: 'CART_VIEW 0 1', expectedMod: 'Module IV', desc: '2D Zone Distance Fee & INR Bill Calculation' },
+    { cmd: 'CART_UNDO', expectedMod: 'Module VIII', desc: 'ArrayStack Pop & Reversion' },
+    { cmd: 'CART_ADD 101 1', expectedMod: 'Module VIII', desc: 'Re-add Item for Order' },
+    { cmd: 'APPLY_COUPON FIRST50', expectedMod: 'Module X', desc: 'std::map Coupon Discount Lookup' },
+    { cmd: 'APPLY_COUPON LEVEL', expectedMod: 'Module V', desc: 'Palindrome Bonus using String Reversal' },
+    { cmd: 'CHECKOUT Aarav 0 MG_Road 1', expectedMod: 'Module IX', desc: 'Order Struct, Check-Digit & Priority Queue' },
+    { cmd: 'TRACK_ORDER 1001', expectedMod: 'Module V', desc: 'Tracking Code Check Digit Verification' },
+    { cmd: 'SIMULATE_NEXT_STAGE 1001', expectedMod: 'Module IX', desc: 'Circular Queue Stage: PLACED -> PREPARING' },
+    { cmd: 'SIMULATE_NEXT_STAGE 1001', expectedMod: 'Module IX', desc: 'Circular Queue Dequeue & Rider Rotation' },
+    { cmd: 'SIMULATE_NEXT_STAGE 1001', expectedMod: 'Module X', desc: 'Delivery Completion & STL Deque Record' },
+    { cmd: 'GET_SALES_MATRIX', expectedMod: 'Module IV', desc: '6x7 Sales Revenue Matrix & Peak Analysis' },
     { cmd: 'GET_ARRAY_STATS', expectedMod: 'Module III', desc: '1D Arrays: Sum, Min, Max & Bubble Sort' },
-    { cmd: 'BENCHMARK', expectedMod: 'Module VII', desc: 'Performance: Linear vs Binary, Bubble vs Sort' },
-    { cmd: 'COMPARE_DS 10000', expectedMod: 'Module X', desc: 'ArrayStack/Queue vs std::stack/queue' },
+    { cmd: 'BENCHMARK', expectedMod: 'Module VII', desc: 'Performance: Linear vs Binary, Bubble vs Introsort' },
+    { cmd: 'COMPARE_DS 10000', expectedMod: 'Module X', desc: 'Custom ArrayStack/Queue vs STL stack/queue' },
     { cmd: 'INSPECT_ENGINE', expectedMod: 'Module VIII', desc: 'Engine Live Memory Inspector' }
 ];
 
@@ -70,11 +72,12 @@ async function runSmokeTest() {
         const t = testCommands[i];
         const res = await sendCmd(t.cmd);
 
-        const hasMod = res.handled_by && res.handled_by.some(m => m.includes(t.expectedMod));
+        const modules = res.modules || res.handled_by || [];
+        const hasMod = modules.some(m => m.includes(t.expectedMod));
         const ok = res.success && hasMod;
 
         if (ok) {
-            console.log(`[PASS] (${i+1}/${testCommands.length}) ${t.cmd.padEnd(28)} | ${t.desc} -> Handled by: [${res.handled_by.join(', ')}]`);
+            console.log(`[PASS] (${i+1}/${testCommands.length}) ${t.cmd.padEnd(30)} | ${t.desc} -> [${modules.join(', ')}]`);
             passed++;
         } else {
             console.error(`[FAIL] (${i+1}/${testCommands.length}) ${t.cmd} -> ${JSON.stringify(res)}`);
@@ -86,8 +89,8 @@ async function runSmokeTest() {
     engine.kill();
 
     console.log('\n----------------------------------------------------------------');
-    console.log(`Test Summary: ${passed} Passed, ${failed} Failed`);
-    console.log('All 10 Modules Verified and Confirmed Operational!');
+    console.log(`Smoke Test Results: ${passed} Passed, ${failed} Failed`);
+    console.log('All 10 Syllabus Modules Verified Operational on Upgraded Engine!');
     console.log('----------------------------------------------------------------\n');
 
     process.exit(failed > 0 ? 1 : 0);

@@ -1,64 +1,95 @@
-## Live Production URL (Vercel)
-FoodRush is deployed live and globally accessible at:
-- **Production URL:** [https://foodrush-kappa.vercel.app](https://foodrush-kappa.vercel.app)
-- **Deployment URL:** [https://foodrush-6utq7thox-foraitools28-9900s-projects.vercel.app](https://foodrush-6utq7thox-foraitools28-9900s-projects.vercel.app)
+# FoodRush - Setup & Execution Guide
 
----
+## Prerequisites
+- **C++ Compiler**: `g++` with C++17 support (MinGW-w64 on Windows, or GCC / Clang on Linux/macOS).
+- **Node.js**: Node.js LTS (v18.0 or higher).
+- **Terminal**: PowerShell, Command Prompt, or bash.
 
-## Prerequisites (For Local Execution)
-
----
-
-## 1. Fast Launch (Windows One-Click)
-Simply double-click:
-```cmd
-run.bat
+To verify your tools:
+```bash
+g++ --version
+node --version
 ```
-This batch script automatically compiles the C++ engine if needed and launches the Web Bridge Server on `http://localhost:3050`.
 
 ---
 
-## 2. Manual Build & Execution
+## 1. Quick Launch (One Command)
+
+From the project root (`d:\c++_year_2`):
+```bash
+node server/server.js
+```
+Then open your browser and navigate to:
+```
+http://localhost:3000
+```
+*(If port 3000 is occupied, the bridge server automatically tries ports 3001, 3002, etc., and logs the active address.)*
+
+---
+
+## 2. Manual Build & Step-by-Step Execution
 
 ### Step A: Compile the C++ Engine
-From the project root (`d:\c++_year_2`):
+To recompile the C++ engine binary manually:
 ```bash
 g++ -std=c++17 -O2 -static src/main.cpp -o foodrush_engine.exe
 ```
+> [!NOTE]
+> On Windows, if `ld.exe: cannot open output file foodrush_engine.exe: Permission denied` appears, stop any running `node server/server.js` or `foodrush_engine.exe` processes before compiling:
+> ```powershell
+> Stop-Process -Name "foodrush_engine" -ErrorAction SilentlyContinue
+> ```
 
-### Step B: Run the Interactive Terminal Mode (For Offline / Terminal Viva)
-To run FoodRush purely in the terminal console without starting the web server:
+### Step B: Interactive CLI Mode (For Terminal Viva / Offline Mode)
+To test and demonstrate all features directly in the console without a browser:
 ```bash
 .\foodrush_engine.exe --cli
 ```
-This opens the interactive text menu (Options 1–9) to browse restaurants, test the stack undo, simulate kitchen cooking, view the 7-day sales matrix, and run live benchmarks.
+Features available in CLI mode:
+- Option 1: Browse Restaurants & Menus
+- Option 2: Search Dishes
+- Option 3: Add to Cart
+- Option 4: View Cart & Totals
+- Option 5: Undo Last Cart Action (Stack LIFO)
+- Option 6: Checkout & Place Order
+- Option 7: Cook Next Order (Circular FIFO Queue)
+- Option 8: View 6×7 Sales Matrix & Statistics
+- Option 9: Run Algorithmic Performance Benchmarks
 
-### Step C: Start the Web Application
+### Step C: Launch the Web Bridge Server
 ```bash
 npm start
 # or: node server/server.js
 ```
-Open your browser and navigate to:
-```
-http://localhost:3050
-```
 
 ---
 
-## 3. Running Automated Tests
-Run the comprehensive 19-command smoke test suite:
+## 3. Running the Automated Smoke Test Suite
+
+To verify all 21 engine commands, data structures, and response schemas:
 ```bash
-npm test
-# or: node test/smoke_test.js
+node test/smoke_test.js
 ```
 Expected output:
 ```
-Test Summary: 19 Passed, 0 Failed
-All 10 Modules Verified and Confirmed Operational!
+==================================================
+  FoodRush C++ Engine - Comprehensive Smoke Test
+==================================================
+[PASS] GET_RESTAURANTS returned 6 restaurants
+[PASS] GET_MENU returned 48 dishes
+[PASS] SEARCH_DISH exact match 'Biryani' found 4 items
+[PASS] SEARCH_DISH fuzzy 'piza' suggested 'pizza'
+...
+Summary: 21 Passed, 0 Failed
+All 10 Syllabus Modules Verified and Operational!
 ```
 
 ---
 
-## 4. Troubleshooting
-- **Port already in use (`EADDRINUSE`)**: The server automatically detects if port 3050 is occupied and shifts to 3051 or 3052. Look at the terminal output for the active URL.
-- **Compiler not recognized**: Ensure `g++` is in your system `PATH`.
+## 4. Architecture Note: Why Local Persistent Server Over Serverless
+FoodRush relies on a **stateful, long-lived C++ engine** process that maintains:
+1. Contiguous in-memory arrays for the 6×7 sales matrix and 48 menu items.
+2. The active `ArrayStack` frame pointer (`topIndex`) for cart undo.
+3. The `CircularQueue` front and rear indices for real-time kitchen order dispatching.
+
+Serverless deployment environments (such as Vercel Functions or AWS Lambda) spin down and freeze processes between HTTP invocations, destroying persistent in-memory data structures. Therefore, the application uses a local persistent Node.js bridge server (`server/server.js`) that communicates with `foodrush_engine.exe` via high-speed stdin/stdout IPC streams (measured round-trip time: **~1.85 ms**).

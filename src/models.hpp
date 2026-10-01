@@ -1,4 +1,4 @@
-// FoodRush - C++ Delivery System Models
+// FoodRush - Domain Models and System Constants
 // [MODULE VI] Structures (declaration, nested, arrays of structs, struct methods) | used by: RESTAURANT_AND_ORDER_MODELS
 #ifndef MODELS_HPP
 #define MODELS_HPP
@@ -7,26 +7,27 @@
 #include <sstream>
 #include <iomanip>
 
-// [MODULE I] Named Constants for fixed-size memory structures
+// [MODULE I] Named Constants for Fixed-Capacity Memory Structures
+const int MAX_RESTAURANTS = 6;
 const int MAX_ITEMS_PER_RESTAURANT = 10;
-const int MAX_TOTAL_ITEMS = 40;
-const int MAX_RESTAURANTS = 4;
+const int MAX_TOTAL_ITEMS = 60;
 const int MAX_ZONES = 5;
-const int MAX_CART_ITEMS = 15;
-const int MAX_ORDERS_HISTORY = 50;
+const int MAX_CART_ITEMS = 20;
+const int MAX_ORDERS_HISTORY = 100;
 const int MAX_RIDERS = 5;
 
-// [MODULE I] Financial and System Constants
-const double TAX_RATE = 0.0825;           // 8.25% Sales tax
-const double BASE_DELIVERY_FEE = 2.49;    // Base fee
-const double PER_KM_FEE = 0.65;           // Per km rate
-const double EXPRESS_SURCHARGE = 3.99;    // Express order priority surcharge
+// [MODULE I] Financial and Operational Constants (Currency: INR ₹)
+const double TAX_RATE = 0.05;              // 5% Goods and Services Tax (GST)
+const double BASE_DELIVERY_FEE = 35.00;    // Base delivery fee in ₹
+const double PER_KM_FEE = 8.50;            // Per km rate in ₹
+const double EXPRESS_SURCHARGE = 45.00;    // Express priority kitchen surcharge in ₹
+const char CURRENCY_SYMBOL[] = "\xE2\x82\xB9"; // UTF-8 byte sequence for ₹
 
 // [MODULE VI] Nested Structure: Address
 struct Address {
     std::string street;
-    int zoneId; // 0 to MAX_ZONES-1
-    std::string zipCode;
+    int zoneId; // 0=Central, 1=North, 2=South, 3=East, 4=West
+    std::string landmark;
     std::string instructions;
 
     std::string toJSON() const {
@@ -34,7 +35,7 @@ struct Address {
         ss << "{"
            << "\"street\":\"" << street << "\","
            << "\"zoneId\":" << zoneId << ","
-           << "\"zipCode\":\"" << zipCode << "\","
+           << "\"landmark\":\"" << landmark << "\","
            << "\"instructions\":\"" << instructions << "\""
            << "}";
         return ss.str();
@@ -51,7 +52,7 @@ struct MenuItem {
     int stock;
     bool isVeg;
     int calories;
-    unsigned int dietaryFlags; // [MODULE I] Bitwise operator flags: 1=Spicy, 2=GlutenFree, 4=ChefSpecial
+    unsigned int dietaryFlags; // [MODULE I] Bitwise flags: 1=Spicy, 2=GlutenFree, 4=ChefSpecial
 
     std::string toJSON() const {
         std::ostringstream ss;
@@ -79,10 +80,12 @@ struct Restaurant {
     std::string name;
     std::string cuisine;
     int zoneId;
-    double rating; // e.g. 4.8
+    double rating;        // e.g. 4.8
     bool isOpen;
     int itemCount;
-    int itemIds[MAX_ITEMS_PER_RESTAURANT]; // Array within struct
+    int itemIds[MAX_ITEMS_PER_RESTAURANT]; // Fixed 1D array within struct
+    int etaMinutes;
+    double minOrder;
 
     std::string toJSON() const {
         std::ostringstream ss;
@@ -94,7 +97,9 @@ struct Restaurant {
            << "\"zoneId\":" << zoneId << ","
            << "\"rating\":" << rating << ","
            << "\"isOpen\":" << (isOpen ? "true" : "false") << ","
-           << "\"itemCount\":" << itemCount
+           << "\"itemCount\":" << itemCount << ","
+           << "\"etaMinutes\":" << etaMinutes << ","
+           << "\"minOrder\":" << std::setprecision(2) << minOrder
            << "}";
         return ss.str();
     }
@@ -127,7 +132,7 @@ struct CartItem {
     }
 };
 
-// Cart Action representation for the Undo Stack
+// Cart Action types for LIFO Undo Stack
 enum CartActionType {
     ACTION_ADD_ITEM = 1,
     ACTION_REMOVE_ITEM = 2,
@@ -159,7 +164,9 @@ struct CartAction {
 // [MODULE VI] Structure: Order (Nested structs Address + array of CartItem)
 struct Order {
     int orderId;
+    std::string trackingCode;          // e.g. "TRK-1001-6" (verified via string reversal check-digit)
     int restaurantId;
+    std::string restaurantName;
     std::string customerName;
     Address deliveryAddress;           // Nested struct
     CartItem items[MAX_CART_ITEMS];    // Array of structs
@@ -174,13 +181,16 @@ struct Order {
     int assignedRiderId;               // -1 if none yet
     std::string riderName;
     int estimatedMinutes;
+    int queuePosition;                 // Live position in kitchen circular queue
 
     std::string toJSON() const {
         std::ostringstream ss;
         ss << std::fixed << std::setprecision(2);
         ss << "{"
            << "\"orderId\":" << orderId << ","
+           << "\"trackingCode\":\"" << trackingCode << "\","
            << "\"restaurantId\":" << restaurantId << ","
+           << "\"restaurantName\":\"" << restaurantName << "\","
            << "\"customerName\":\"" << customerName << "\","
            << "\"address\":" << deliveryAddress.toJSON() << ","
            << "\"itemCount\":" << itemCount << ","
@@ -199,7 +209,8 @@ struct Order {
            << "\"status\":\"" << status << "\","
            << "\"assignedRiderId\":" << assignedRiderId << ","
            << "\"riderName\":\"" << riderName << "\","
-           << "\"estimatedMinutes\":" << estimatedMinutes
+           << "\"estimatedMinutes\":" << estimatedMinutes << ","
+           << "\"queuePosition\":" << queuePosition
            << "}";
         return ss.str();
     }
@@ -209,10 +220,11 @@ struct Order {
 struct Rider {
     int id;
     std::string name;
-    std::string vehicle; // "E-Bike", "Scooter", "Motorcycle"
+    std::string vehicle; // "Electric Cargo Bike", "Hero Electric Scooter", etc.
     int currentZone;
     bool isAvailable;
     int totalDeliveries;
+    std::string phone;
 
     std::string toJSON() const {
         std::ostringstream ss;
@@ -222,7 +234,8 @@ struct Rider {
            << "\"vehicle\":\"" << vehicle << "\","
            << "\"currentZone\":" << currentZone << ","
            << "\"isAvailable\":" << (isAvailable ? "true" : "false") << ","
-           << "\"totalDeliveries\":" << totalDeliveries
+           << "\"totalDeliveries\":" << totalDeliveries << ","
+           << "\"phone\":\"" << phone << "\""
            << "}";
         return ss.str();
     }

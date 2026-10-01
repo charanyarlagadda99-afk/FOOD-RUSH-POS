@@ -17,6 +17,7 @@
 #include <cctype>
 #include <sstream>
 #include <iomanip>
+#include <cmath>
 #include "models.hpp"
 #include "array_stack.hpp"
 #include "array_queue.hpp"
@@ -89,7 +90,7 @@ inline void bubbleSortArray(double arr[], int size) {
 }
 
 // ============================================================================
-// [MODULE V] STRING OPERATIONS
+// [MODULE V] STRING OPERATIONS & PATTERN MATCHING
 // ============================================================================
 
 // [MODULE V] String Traversal & Case Conversion | used by: SEARCH_NORMALIZATION
@@ -122,7 +123,7 @@ inline std::vector<std::string> tokenizeString(const std::string& input, char de
     return tokens;
 }
 
-// [MODULE V] String Reversal | used by: PALINDROME_COUPON_VERIFIER
+// [MODULE V] String Reversal | used by: STRING_REVERSAL_ALGORITHM
 inline std::string reverseString(std::string str) {
     int n = static_cast<int>(str.length());
     for (int i = 0; i < n / 2; ++i) {
@@ -143,6 +144,103 @@ inline std::map<char, int> analyzeCharFrequency(const std::string& str) {
         }
     }
     return freq;
+}
+
+// [MODULE V] Levenshtein Edit Distance for "Did You Mean" Fuzzy Search Suggestions
+inline int calculateLevenshteinDistance(const std::string& s1, const std::string& s2) {
+    int m = static_cast<int>(s1.length());
+    int n = static_cast<int>(s2.length());
+
+    // Allocate 2D matrix for dynamic programming table
+    std::vector<std::vector<int>> dp(m + 1, std::vector<int>(n + 1));
+
+    for (int i = 0; i <= m; ++i) dp[i][0] = i;
+    for (int j = 0; j <= n; ++j) dp[0][j] = j;
+
+    for (int i = 1; i <= m; ++i) {
+        for (int j = 1; j <= n; ++j) {
+            if (std::tolower(static_cast<unsigned char>(s1[i - 1])) ==
+                std::tolower(static_cast<unsigned char>(s2[j - 1]))) {
+                dp[i][j] = dp[i - 1][j - 1];
+            } else {
+                dp[i][j] = 1 + std::min({
+                    dp[i - 1][j],    // Deletion
+                    dp[i][j - 1],    // Insertion
+                    dp[i - 1][j - 1] // Substitution
+                });
+            }
+        }
+    }
+    return dp[m][n];
+}
+
+// [MODULE V] Find "Did You Mean" suggestion from catalog vocabulary
+inline std::string findDidYouMeanSuggestion(const std::string& query, const MenuItem items[], int itemCount) {
+    std::string cleanQuery = toLowerString(query);
+    if (cleanQuery.length() < 3) return "";
+
+    std::string bestMatch = "";
+    int minDistance = 999;
+
+    // Check item names and categories
+    for (int i = 0; i < itemCount; ++i) {
+        // Compare with category
+        std::string cat = toLowerString(items[i].category);
+        int dCat = calculateLevenshteinDistance(cleanQuery, cat);
+        if (dCat < minDistance && dCat <= 2 && dCat > 0) {
+            minDistance = dCat;
+            bestMatch = items[i].category;
+        }
+
+        // Compare with individual words in dish name
+        auto words = tokenizeString(items[i].name, ' ');
+        for (const auto& w : words) {
+            std::string wordClean = toLowerString(w);
+            if (wordClean.length() < 3) continue;
+            int dWord = calculateLevenshteinDistance(cleanQuery, wordClean);
+            if (dWord < minDistance && dWord <= 2 && dWord > 0) {
+                minDistance = dWord;
+                bestMatch = w;
+            }
+        }
+    }
+
+    return bestMatch;
+}
+
+// [MODULE V] Tracking Code Check Digit Generator Using String Reversal
+// Computes a tamper-proof check digit by reversing the order digits and calculating weighted modulo
+inline std::string generateTrackingCode(int orderId) {
+    std::string idStr = std::to_string(orderId);
+    std::string rev = reverseString(idStr); // [MODULE V] String reversal
+
+    int weightedSum = 0;
+    for (size_t i = 0; i < rev.length(); ++i) {
+        weightedSum += (rev[i] - '0') * (static_cast<int>(i) + 2);
+    }
+    int checkDigit = (weightedSum % 9) + 1; // 1 to 9
+
+    return "TRK-" + idStr + "-" + std::to_string(checkDigit);
+}
+
+// [MODULE V] Validate Tracking Code Using String Reversal Verification
+inline bool validateTrackingCode(const std::string& trackingCode) {
+    auto tokens = tokenizeString(trackingCode, '-');
+    if (tokens.size() != 3 || tokens[0] != "TRK") {
+        return false;
+    }
+
+    std::string idStr = tokens[1];
+    int expectedCheckDigit = std::stoi(tokens[2]);
+
+    std::string rev = reverseString(idStr); // [MODULE V] String reversal
+    int weightedSum = 0;
+    for (size_t i = 0; i < rev.length(); ++i) {
+        weightedSum += (rev[i] - '0') * (static_cast<int>(i) + 2);
+    }
+    int calculatedCheckDigit = (weightedSum % 9) + 1;
+
+    return (expectedCheckDigit == calculatedCheckDigit);
 }
 
 // [MODULE V] JSON String Escaping | used by: PROTOCOL_SERIALIZER
@@ -170,7 +268,7 @@ private:
     // [MODULE X] std::map for coupon discount lookup | used by: DISCOUNT_SYSTEM
     std::map<std::string, double> couponDiscounts;
 
-    // [MODULE X] std::set for unique cuisine and diet categories | used by: CATEGORY_REGISTRY
+    // [MODULE X] std::set for unique cuisine categories | used by: CATEGORY_REGISTRY
     std::set<std::string> availableCuisines;
 
     // [MODULE X] std::vector for dynamic menu item storage | used by: DYNAMIC_CATALOG
@@ -190,23 +288,27 @@ private:
 
 public:
     STLManager() {
-        // Seed STL map coupons
-        couponDiscounts["FOODRUSH10"] = 10.0; // 10% off
-        couponDiscounts["WELCOME20"]  = 20.0; // 20% off
-        couponDiscounts["SUPER50"]    = 50.0; // 50% off promo
-        couponDiscounts["CHEFVIP"]    = 25.0; // 25% off
+        // Product Coupons in std::map
+        couponDiscounts["FIRST50"]   = 50.0; // 50% off (up to limit)
+        couponDiscounts["WELCOME10"] = 10.0; // 10% off
+        couponDiscounts["FREEDEL"]   = 100.0; // Free delivery flag
+        couponDiscounts["FOODRUSH"]  = 20.0; // 20% off
 
-        // Seed STL set cuisines
-        availableCuisines.insert("Italian");
+        // Unique cuisines in std::set
+        availableCuisines.insert("Biryani & Mughlai");
+        availableCuisines.insert("South Indian");
+        availableCuisines.insert("Artisan Italian");
         availableCuisines.insert("Japanese");
-        availableCuisines.insert("Indian");
-        availableCuisines.insert("American");
+        availableCuisines.insert("American Gourmet");
+        availableCuisines.insert("Desserts & Bakery");
 
-        // Seed STL pairs of daily specials: itemId -> discount%
-        dailySpecials.push_back(std::make_pair(101, 15.0)); // Margherita Pizza
-        dailySpecials.push_back(std::make_pair(201, 20.0)); // Tonkotsu Ramen
-        dailySpecials.push_back(std::make_pair(301, 10.0)); // Butter Chicken
-        dailySpecials.push_back(std::make_pair(401, 12.5)); // Classic Cheeseburger
+        // Seed daily special pairs (itemId, discount%)
+        dailySpecials.push_back(std::make_pair(101, 15.0)); // Hyderabadi Dum Biryani
+        dailySpecials.push_back(std::make_pair(201, 20.0)); // Ghee Roast Dosa
+        dailySpecials.push_back(std::make_pair(301, 10.0)); // Wood-Fired Margherita
+        dailySpecials.push_back(std::make_pair(401, 12.5)); // Tonkotsu Ramen
+        dailySpecials.push_back(std::make_pair(501, 15.0)); // Cheddar Smash Burger
+        dailySpecials.push_back(std::make_pair(601, 10.0)); // Chocolate Ganache Pastry
     }
 
     // [MODULE X] Lookup coupon discount using std::map | used by: APPLY_COUPON
@@ -219,20 +321,8 @@ public:
         return false;
     }
 
-    // [MODULE X] Add dynamically created item to std::vector using iterators
     void addMenuItem(const MenuItem& item) {
         stlMenuItems.push_back(item);
-    }
-
-    // [MODULE X] Vector iterator traversal | used by: ITERATOR_CATALOG_SCAN
-    int countVegetarianItems() const {
-        int vegCount = 0;
-        for (std::vector<MenuItem>::const_iterator it = stlMenuItems.begin(); it != stlMenuItems.end(); ++it) {
-            if (it->isVeg) {
-                vegCount++;
-            }
-        }
-        return vegCount;
     }
 
     // [MODULE X] Push to STL Undo Stack | used by: STL_UNDO
@@ -264,8 +354,8 @@ public:
     // [MODULE X] Double-ended queue (deque) tracking of completed orders
     void recordCompletedOrder(int orderId) {
         recentOrdersDeque.push_back(orderId);
-        if (recentOrdersDeque.size() > 20) {
-            recentOrdersDeque.pop_front(); // Keep last 20
+        if (recentOrdersDeque.size() > 25) {
+            recentOrdersDeque.pop_front(); // Keep last 25
         }
     }
 
@@ -378,8 +468,6 @@ public:
 
 class PerformanceBenchmark {
 public:
-    // [MODULE VII] Timed Benchmark: Linear Search O(N) vs Binary Search O(log N)
-    // and Bubble Sort O(N^2) vs std::sort O(N log N)
     static std::string runFullBenchmark() {
         std::ostringstream ss;
         ss << std::fixed << std::setprecision(3);
@@ -427,9 +515,9 @@ public:
         // 2. Prepare randomized arrays for Sort test
         std::vector<int> bubbleData(SORT_ELEMENTS);
         for (int i = 0; i < SORT_ELEMENTS; ++i) {
-            bubbleData[i] = SORT_ELEMENTS - i; // Reverse sorted worst case
+            bubbleData[i] = SORT_ELEMENTS - i; // Worst-case reverse order
         }
-        std::vector<int> introData = bubbleData; // Identical copy
+        std::vector<int> introData = bubbleData;
 
         // Bubble Sort O(N^2)
         tStart = std::chrono::high_resolution_clock::now();
@@ -486,11 +574,13 @@ public:
            << "\"featureComplexityAnalysis\":["
            << "{\"feature\":\"Browse Menu\",\"dataStructure\":\"1D Array\",\"time\":\"O(1) direct / O(N) scan\",\"space\":\"O(1)\"},"
            << "{\"feature\":\"Dish Search\",\"dataStructure\":\"String Pattern Matching\",\"time\":\"O(M * K)\",\"space\":\"O(1)\"},"
+           << "{\"feature\":\"Did You Mean Suggestion\",\"dataStructure\":\"Levenshtein Distance Matrix\",\"time\":\"O(L1 * L2)\",\"space\":\"O(L1 * L2)\"},"
            << "{\"feature\":\"Cart Undo Stack\",\"dataStructure\":\"ArrayStack (Hand-crafted)\",\"time\":\"O(1) push/pop\",\"space\":\"O(MAX_CART)\"},"
            << "{\"feature\":\"Kitchen Order Queue\",\"dataStructure\":\"CircularQueue (Hand-crafted)\",\"time\":\"O(1) enqueue/dequeue\",\"space\":\"O(MAX_ORDERS)\"},"
-           << "{\"feature\":\"Sales Matrix Analysis\",\"dataStructure\":\"2D Matrix (4x7)\",\"time\":\"O(R * D)\",\"space\":\"O(R * D)\"},"
+           << "{\"feature\":\"Sales Matrix Analysis\",\"dataStructure\":\"2D Matrix (6x7)\",\"time\":\"O(R * D)\",\"space\":\"O(R * D)\"},"
            << "{\"feature\":\"Zone Distance Lookup\",\"dataStructure\":\"2D Matrix (5x5)\",\"time\":\"O(1) lookup\",\"space\":\"O(Z^2)\"},"
-           << "{\"feature\":\"Coupon Validation\",\"dataStructure\":\"std::map + Palindrome Check\",\"time\":\"O(log C) map / O(L) string\",\"space\":\"O(C)\"}"
+           << "{\"feature\":\"Tracking Code Check Digit\",\"dataStructure\":\"String Reversal Algorithm\",\"time\":\"O(L)\",\"space\":\"O(L)\"},"
+           << "{\"feature\":\"Coupon Validation\",\"dataStructure\":\"std::map (Red-Black Tree)\",\"time\":\"O(log C)\",\"space\":\"O(C)\"}"
            << "]"
            << "}";
         return ss.str();

@@ -3,429 +3,522 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FoodRush - C++ Engine Food Delivery System</title>
-    <link rel="stylesheet" href="style.css">
+    <title>FoodRush — Curated Food Delivery</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
 </head>
 <body>
-    <!-- Top Navigation Header -->
-    <header class="app-header">
-        <div class="header-left">
-            <div class="logo">
-                <span class="logo-icon">🚀</span>
-                <div>
-                    <h1>FoodRush</h1>
-                    <span class="subtitle">C++ Core High-Performance Engine</span>
+
+    <!-- VIVA EXAMINER BANNER (Hidden by default; revealed only in Viva Mode) -->
+    <div id="vivaTopBanner" class="viva-banner" style="display: none;">
+        <div class="viva-banner-inner">
+            <div class="viva-badge-group">
+                <span class="viva-tag">EXAMINER MODE ACTIVE</span>
+                <span id="vivaHandledBadge" class="viva-handled-badge">Action: Standby</span>
+            </div>
+            <div class="viva-banner-actions">
+                <button class="viva-btn" onclick="openVivaModal('inspector')">Memory Inspector</button>
+                <button class="viva-btn" onclick="openVivaModal('benchmarks')">Benchmarks</button>
+                <button class="viva-btn" onclick="openVivaModal('map')">Module Map</button>
+                <button class="viva-close-btn" onclick="toggleVivaMode(false)" title="Exit Viva Mode (Key: V)">✕</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- MAIN HEADER -->
+    <header class="site-header">
+        <div class="header-container">
+            <div class="header-left">
+                <a href="#storefront" class="brand-logo" onclick="navigateTo('storefront')">
+                    <svg class="brand-icon" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="16" cy="16" r="14" fill="#D9531E" fill-opacity="0.12"/>
+                        <path d="M9 16C9 12.134 12.134 9 16 9C19.866 9 23 12.134 23 16C23 19.866 19.866 23 16 23" stroke="#D9531E" stroke-width="2.5" stroke-linecap="round"/>
+                        <circle cx="16" cy="16" r="3" fill="#D9531E"/>
+                        <path d="M23 9L21 11" stroke="#D9531E" stroke-width="2" stroke-linecap="round"/>
+                    </svg>
+                    <span class="brand-name">FoodRush</span>
+                </a>
+
+                <div class="delivery-pill">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                    <span>Delivering to: <strong id="headerZoneName">Central</strong></span>
                 </div>
             </div>
-            <div class="engine-status" id="engineStatus">
-                <span class="status-dot"></span>
-                <span class="status-text">C++ Engine: Connected</span>
-            </div>
-        </div>
 
-        <!-- Global Live Module Indicator -->
-        <div class="module-tracker" id="moduleTracker">
-            <span class="tracker-label">LAST ACTION HANDLED BY:</span>
-            <div class="tracker-badges" id="trackerBadges">
-                <span class="badge badge-primary">Module I (Basics)</span>
-                <span class="badge badge-secondary">Module II (Control)</span>
-            </div>
-        </div>
-
-        <div class="header-right">
-            <button class="cart-quick-btn" onclick="switchTab('cart')">
-                🛒 Cart (<span id="cartCountBadge">0</span>)
-            </button>
+            <nav class="header-nav">
+                <button class="nav-link active" id="navStorefront" onclick="navigateTo('storefront')">Explore</button>
+                <button class="nav-link" id="navTracker" onclick="navigateTo('tracker')">Track Order</button>
+                <button class="nav-link" id="navAdmin" onclick="navigateTo('admin')">Admin</button>
+                <button class="cart-trigger-btn" onclick="toggleCartDrawer(true)">
+                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+                    <span>Bag</span>
+                    <span class="cart-badge-count" id="headerCartCount">0</span>
+                </button>
+            </nav>
         </div>
     </header>
 
-    <!-- Tab Bar -->
-    <nav class="tab-bar">
-        <button class="tab-btn active" onclick="switchTab('restaurants')">🏪 Restaurants & Menu</button>
-        <button class="tab-btn" onclick="switchTab('search')">🔍 Dish Search</button>
-        <button class="tab-btn" onclick="switchTab('cart')">🛒 Cart & Undo</button>
-        <button class="tab-btn" onclick="switchTab('kitchen')">👨‍🍳 Kitchen & Riders</button>
-        <button class="tab-btn" onclick="switchTab('admin')">📊 Sales Matrix & Stats</button>
-        <button class="tab-btn" onclick="switchTab('inspector')">🔬 Engine Inspector</button>
-        <button class="tab-btn" onclick="switchTab('benchmarks')">⚡ Benchmarks & STL</button>
-    </nav>
+    <!-- MAIN APP CONTAINER -->
+    <main class="page-body">
 
-    <!-- Main Content Container -->
-    <main class="content-container">
+        <!-- ============================================================= -->
+        <!-- VIEW 1: STOREFRONT & RESTAURANTS                              -->
+        <!-- ============================================================= -->
+        <section id="viewStorefront" class="app-view active">
+            <!-- HERO SEARCH SECTION -->
+            <section class="hero-section">
+                <div class="hero-content">
+                    <h1 class="hero-title">Curated dining, delivered to your door.</h1>
+                    <p class="hero-subtitle">Freshly prepared meals from top neighbourhood kitchens, dispatched in minutes.</p>
 
-        <!-- TAB 1: RESTAURANTS & MENU -->
-        <section id="tab-restaurants" class="tab-pane active">
-            <div class="section-header">
-                <div>
-                    <h2>Browse Partner Restaurants</h2>
-                    <p class="section-desc">Loaded from fixed-size C++ structures [Module VI: Restaurant, Module III: 1D Arrays]</p>
+                    <div class="search-bar-wrap">
+                        <svg class="search-bar-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                        <input type="text" id="mainSearchInput" class="search-bar-input" placeholder="Search dishes, flavours, or cuisines (e.g., Biryani, Dosa, Ramen, Truffle)..." autocomplete="off" oninput="handleSearchInput(event)">
+                        <button class="search-clear-btn" id="searchClearBtn" onclick="clearSearch()" style="display:none;">✕</button>
+                    </div>
+
+                    <!-- Did You Mean Suggestion Bar -->
+                    <div id="didYouMeanBar" class="did-you-mean-bar" style="display: none;">
+                        <span>Did you mean:</span>
+                        <button class="did-you-mean-chip" id="didYouMeanChip" onclick="applySuggestion()">Biryani</button>
+                    </div>
+
+                    <!-- Cuisine Filter Chips -->
+                    <div class="cuisine-chips-row">
+                        <button class="cuisine-chip active" onclick="selectCuisineFilter('All')">All Cuisines</button>
+                        <button class="cuisine-chip" onclick="selectCuisineFilter('Biryani')">Biryani</button>
+                        <button class="cuisine-chip" onclick="selectCuisineFilter('South Indian')">South Indian</button>
+                        <button class="cuisine-chip" onclick="selectCuisineFilter('Artisan Italian')">Artisan Italian</button>
+                        <button class="cuisine-chip" onclick="selectCuisineFilter('Japanese')">Japanese</button>
+                        <button class="cuisine-chip" onclick="selectCuisineFilter('American Gourmet')">Burgers</button>
+                        <button class="cuisine-chip" onclick="selectCuisineFilter('Desserts & Bakery')">Desserts</button>
+                    </div>
                 </div>
-                <div class="filter-controls">
-                    <button class="filter-btn active" onclick="filterMenuByRestaurant(0)">All Restaurants</button>
-                    <button class="filter-btn" onclick="filterMenuByRestaurant(1)">Bella Italia</button>
-                    <button class="filter-btn" onclick="filterMenuByRestaurant(2)">Tokyo Ramen</button>
-                    <button class="filter-btn" onclick="filterMenuByRestaurant(3)">Spice Symphony</button>
-                    <button class="filter-btn" onclick="filterMenuByRestaurant(4)">Burger Bistro</button>
+            </section>
+
+            <!-- SEARCH RESULTS OVERLAY (When searching) -->
+            <section id="searchResultsSection" class="content-container search-results-container" style="display: none;">
+                <div class="results-header-bar">
+                    <h2 class="section-heading" id="searchResultsHeading">Search Results</h2>
+                    <button class="text-link-btn" onclick="clearSearch()">View all kitchens</button>
                 </div>
-            </div>
+                <div class="dishes-grid" id="searchResultsGrid">
+                    <!-- Populated via search -->
+                </div>
+            </section>
 
-            <!-- Restaurant Summary Cards -->
-            <div class="restaurants-grid" id="restaurantsList">
-                <!-- Dynamically populated -->
-            </div>
+            <!-- RESTAURANTS SECTION -->
+            <section id="restaurantsSection" class="content-container">
+                <div class="section-title-wrap">
+                    <h2 class="section-heading">Featured Kitchens</h2>
+                    <span class="section-meta">Selected for quality and speed</span>
+                </div>
 
-            <div class="section-subhead">
-                <h3>Available Dishes</h3>
-                <span class="pill-note">Prices, stock, and bitwise dietary flags managed by C++ [Module I, Module VI]</span>
-            </div>
+                <div class="restaurants-grid" id="restaurantsGrid">
+                    <!-- Dynamic Restaurant Cards -->
+                </div>
+            </section>
 
-            <!-- Dishes Grid -->
-            <div class="dishes-grid" id="dishesList">
-                <!-- Dynamically populated -->
-            </div>
+            <!-- ACTIVE RESTAURANT MENU SECTION -->
+            <section id="menuSection" class="content-container" style="margin-top: 48px;">
+                <div class="menu-header-bar">
+                    <div>
+                        <h2 class="section-heading" id="menuRestaurantName">All Dishes</h2>
+                        <span class="section-meta" id="menuRestaurantMeta">Showing freshly prepared specialities</span>
+                    </div>
+                    <div class="dietary-filters">
+                        <button class="filter-pill active" onclick="filterMenuByDiet('all')">All</button>
+                        <button class="filter-pill" onclick="filterMenuByDiet('veg')">Veg Only</button>
+                        <button class="filter-pill" onclick="filterMenuByDiet('nonveg')">Non-Veg</button>
+                        <button class="filter-pill" onclick="filterMenuByDiet('special')">Chef Special</button>
+                    </div>
+                </div>
+
+                <div class="dishes-grid" id="dishesGrid">
+                    <!-- Dynamic Dishes -->
+                </div>
+            </section>
         </section>
 
-        <!-- TAB 2: DISH SEARCH -->
-        <section id="tab-search" class="tab-pane">
-            <div class="section-header">
-                <div>
-                    <h2>High-Performance Dish Search</h2>
-                    <p class="section-desc">String traversal, toLower normalization, and substring pattern matching [Module V: Strings]</p>
+        <!-- ============================================================= -->
+        <!-- VIEW 2: LIVE ORDER TRACKER                                    -->
+        <!-- ============================================================= -->
+        <section id="viewTracker" class="app-view">
+            <div class="content-container tracker-page-wrap">
+                <div class="tracker-header">
+                    <h1 class="tracker-title">Live Order Tracking</h1>
+                    <p class="tracker-subtitle">Follow your meal from kitchen prep to doorstep arrival in real time.</p>
                 </div>
-            </div>
 
-            <div class="search-box-card">
-                <div class="search-input-wrapper">
-                    <span class="search-icon">🔍</span>
-                    <input type="text" id="searchInput" placeholder="Type a dish, cuisine, or category (e.g. ramen, spicy, burger, pizza)..." onkeyup="handleSearchKey(event)">
-                    <button class="primary-btn" onclick="executeSearch()">Search Engine</button>
-                </div>
-                <div class="quick-tags">
-                    <span>Try:</span>
-                    <a href="javascript:void(0)" onclick="quickSearch('ramen')">Ramen</a>
-                    <a href="javascript:void(0)" onclick="quickSearch('pizza')">Pizza</a>
-                    <a href="javascript:void(0)" onclick="quickSearch('burger')">Burger</a>
-                    <a href="javascript:void(0)" onclick="quickSearch('curry')">Curry</a>
-                    <a href="javascript:void(0)" onclick="quickSearch('spicy')">Spicy</a>
-                    <a href="javascript:void(0)" onclick="quickSearch('veg')">Vegetarian</a>
-                </div>
-            </div>
-
-            <div id="searchResultsHeader" class="search-results-meta" style="display:none;">
-                <span id="searchResultCount">0 matches</span>
-                <span id="searchMetricsBadge" class="badge badge-info">O(M*K) Pattern Scan</span>
-            </div>
-
-            <div class="dishes-grid" id="searchResultsList">
-                <div class="empty-state">Enter a search keyword above to run the C++ string search algorithm.</div>
-            </div>
-        </section>
-
-        <!-- TAB 3: CART WITH UNDO -->
-        <section id="tab-cart" class="tab-pane">
-            <div class="cart-layout">
-                <div class="cart-items-column">
-                    <div class="card">
-                        <div class="card-header">
-                            <div>
-                                <h2>Your Cart</h2>
-                                <p class="card-desc">Array-backed Cart with Hand-crafted Stack Undo [Module VIII: Stack, Module I: Basics]</p>
-                            </div>
-                            <div class="cart-actions-bar">
-                                <button class="undo-btn" id="btnUndo" onclick="cartUndo()" title="Pop and reverse last action from Stack">
-                                    ↩️ <strong>UNDO ACTION</strong>
-                                    <span class="stack-badge" id="undoBadge">Stack: 0</span>
-                                </button>
-                                <button class="clear-btn" onclick="cartClear()">Clear Cart</button>
-                            </div>
-                        </div>
-
-                        <div id="cartMessageBar" class="alert-box" style="display: none;"></div>
-
-                        <div class="cart-items-table-wrapper" id="cartItemsContainer">
-                            <div class="empty-state">Your cart is currently empty. Add dishes from the menu!</div>
+                <!-- Tracking Code Input Lookup -->
+                <div class="tracker-lookup-card">
+                    <div class="lookup-form">
+                        <label for="trackCodeInput">Have an Order Code?</label>
+                        <div class="lookup-input-group">
+                            <input type="text" id="trackCodeInput" placeholder="Enter Order ID or Tracking Code (e.g., TRK-1001-8)">
+                            <button class="primary-action-btn" onclick="lookupOrder()">Find Order</button>
                         </div>
                     </div>
                 </div>
 
-                <!-- Checkout Summary Column -->
-                <div class="cart-summary-column">
-                    <div class="card summary-card">
-                        <h3>Order Summary</h3>
-                        <p class="summary-sub">Zone distance calculated via 2D matrix [Module IV]</p>
-
-                        <div class="delivery-options">
-                            <label>Delivery Zone:</label>
-                            <select id="checkoutZone" onchange="refreshCartView()">
-                                <option value="0">Zone 0: Downtown</option>
-                                <option value="1">Zone 1: Uptown</option>
-                                <option value="2">Zone 2: Tech Park</option>
-                                <option value="3">Zone 3: Suburbs North</option>
-                                <option value="4">Zone 4: Waterfront Harbor</option>
-                            </select>
-
-                            <label class="checkbox-label">
-                                <input type="checkbox" id="checkoutExpress" onchange="refreshCartView()">
-                                <span>⚡ Express Priority (Cook first, faster rider)</span>
-                            </label>
-                        </div>
-
-                        <!-- Coupon Form -->
-                        <div class="coupon-section">
-                            <label>Coupon / Promo Code:</label>
-                            <div class="coupon-input-group">
-                                <input type="text" id="couponInput" placeholder="Try WELCOME20 or LEVEL">
-                                <button class="btn-secondary" onclick="applyCoupon()">Apply</button>
-                            </div>
-                            <small class="coupon-hint">💡 Tip: Try palindromes like <code>LEVEL</code> or <code>RACECAR</code> for reverseString bonus discount! [Module V, X]</small>
-                        </div>
-
-                        <!-- Price Breakdown -->
-                        <div class="bill-breakdown">
-                            <div class="bill-row"><span>Subtotal:</span><strong id="billSubtotal">$0.00</strong></div>
-                            <div class="bill-row"><span>Discount:</span><strong id="billDiscount" class="text-green">-$0.00</strong></div>
-                            <div class="bill-row"><span>Tax (8.25%):</span><strong id="billTax">$0.00</strong></div>
-                            <div class="bill-row"><span>Delivery Fee:</span><strong id="billDelivery">$0.00</strong></div>
-                            <div class="bill-divider"></div>
-                            <div class="bill-row total-row"><span>Final Total:</span><strong id="billTotal">$0.00</strong></div>
-                        </div>
-
-                        <!-- Checkout Form -->
-                        <div class="checkout-form">
-                            <label>Customer Name:</label>
-                            <input type="text" id="custName" value="Alice">
-                            <label>Street Address:</label>
-                            <input type="text" id="custStreet" value="452 Elm Street">
-                            <button class="checkout-btn" onclick="submitCheckout()">
-                                Complete Checkout ➔
-                            </button>
-                        </div>
+                <!-- Active Order Tracking Display -->
+                <div id="trackerDetailsArea">
+                    <div class="empty-state-card">
+                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#6B645B" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+                        <h3>No Active Order Found</h3>
+                        <p>Place an order from the Explore menu or enter your order number above.</p>
+                        <button class="secondary-btn" onclick="navigateTo('storefront')">Browse Menus</button>
                     </div>
                 </div>
             </div>
         </section>
 
-        <!-- TAB 4: KITCHEN & RIDERS -->
-        <section id="tab-kitchen" class="tab-pane">
-            <div class="section-header">
-                <div>
-                    <h2>Kitchen Order Queue & Rider Dispatch</h2>
-                    <p class="section-desc">Circular Queue FIFO order processing and priority dispatch [Module IX: Queue, Module VI: Orders]</p>
-                </div>
-                <div>
-                    <button class="primary-btn" onclick="cookNextOrder()">🍳 Cook Next Order (Queue Dequeue)</button>
-                </div>
-            </div>
-
-            <!-- Queue Metrics Bar -->
-            <div class="metrics-row">
-                <div class="metric-card">
-                    <span class="metric-label">Circular Kitchen Queue</span>
-                    <strong class="metric-value" id="metricKitchenQueue">0</strong>
-                    <span class="metric-sub">Pending Chef Preparation</span>
-                </div>
-                <div class="metric-card">
-                    <span class="metric-label">Express Priority Queue</span>
-                    <strong class="metric-value text-orange" id="metricExpressQueue">0</strong>
-                    <span class="metric-sub">Jump Ahead Priority</span>
-                </div>
-                <div class="metric-card">
-                    <span class="metric-label">Available Riders</span>
-                    <strong class="metric-value text-green" id="metricAvailableRiders">5</strong>
-                    <span class="metric-sub">In Circular Rotation</span>
-                </div>
-            </div>
-
-            <!-- Live Orders Table -->
-            <div class="card">
-                <div class="card-header">
-                    <h3>Active & Recent Orders</h3>
-                    <button class="btn-small" onclick="loadOrders()">🔄 Refresh Orders</button>
-                </div>
-                <div class="orders-table-wrapper" id="ordersContainer">
-                    <div class="empty-state">No orders placed yet. Place an order in the Cart tab!</div>
-                </div>
-            </div>
-
-            <!-- Rider Fleet -->
-            <div class="card" style="margin-top: 24px;">
-                <div class="card-header">
-                    <h3>Delivery Rider Fleet (Circular Rotation)</h3>
-                    <span class="pill-note">[Module IX: Rider Queue, Module VI: Rider Struct]</span>
-                </div>
-                <div class="riders-grid" id="ridersGrid">
-                    <!-- Populated dynamically -->
-                </div>
-            </div>
-        </section>
-
-        <!-- TAB 5: ADMIN & SALES MATRIX -->
-        <section id="tab-admin" class="tab-pane">
-            <div class="section-header">
-                <div>
-                    <h2>Admin Analytics: 7-Day Sales Matrix & Distances</h2>
-                    <p class="section-desc">Raw 2D Array Matrix Operations: Row Sums, Column Sums, Peak Analysis [Module IV: 2D Arrays]</p>
-                </div>
-                <button class="btn-secondary" onclick="loadSalesMatrix()">Refresh Matrix</button>
-            </div>
-
-            <div class="matrix-summary-row" id="matrixStatsRow">
-                <!-- Highlights: Grand Total, Busiest Restaurant, Busiest Day -->
-            </div>
-
-            <!-- 2D Sales Table -->
-            <div class="card">
-                <div class="card-header">
-                    <h3>Weekly Sales Matrix (USD) - <code>sales[Restaurant][Day]</code></h3>
-                    <span class="pill-note">Row Sums = Restaurant Totals | Column Sums = Day Totals</span>
-                </div>
-                <div class="matrix-table-wrapper" id="salesMatrixTableContainer">
-                    <!-- Matrix Table -->
-                </div>
-            </div>
-
-            <!-- 2D Zone Distance Matrix -->
-            <div class="card" style="margin-top: 24px;">
-                <div class="card-header">
-                    <h3>Zone Distance Matrix (Kilometers) - <code>zoneDistanceMatrix[5][5]</code></h3>
-                    <span class="pill-note">Symmetric 2D Matrix used for O(1) Delivery Fee calculation</span>
-                </div>
-                <div class="matrix-table-wrapper" id="distanceMatrixTableContainer">
-                    <!-- Distance Matrix Table -->
-                </div>
-            </div>
-
-            <!-- 1D Array Statistics Card -->
-            <div class="card" style="margin-top: 24px;">
-                <div class="card-header">
-                    <h3>1D Array Statistical Operations [Module III]</h3>
-                    <button class="btn-small" onclick="loadArrayStats()">Compute 1D Stats</button>
-                </div>
-                <div id="arrayStatsContainer">
-                    <p class="text-muted">Click button to run C++ sum, min, max, and bubble sort on raw 1D arrays.</p>
-                </div>
-            </div>
-        </section>
-
-        <!-- TAB 6: ENGINE INSPECTOR -->
-        <section id="tab-inspector" class="tab-pane">
-            <div class="section-header">
-                <div>
-                    <h2>Data Structure Memory & Live Inspector</h2>
-                    <p class="section-desc">Direct introspection of hand-crafted C++ Stack, Circular Queue pointers, and STL registry</p>
-                </div>
-                <button class="primary-btn" onclick="loadEngineInspector()">🔬 Refresh Snapshot</button>
-            </div>
-
-            <div class="inspector-grid">
-                <!-- Stack Inspector Card -->
-                <div class="card">
-                    <div class="card-header">
-                        <h3>📚 Cart Action Stack [Module VIII]</h3>
-                        <span class="badge badge-primary" id="inspStackBadge">Depth: 0 / 50</span>
+        <!-- ============================================================= -->
+        <!-- VIEW 3: ADMIN DASHBOARD                                       -->
+        <!-- ============================================================= -->
+        <section id="viewAdmin" class="app-view">
+            <div class="content-container admin-wrap">
+                <div class="admin-header-row">
+                    <div>
+                        <h1 class="admin-title">Store Operations & Analytics</h1>
+                        <p class="admin-subtitle">Live revenue matrix, active kitchen orders, and delivery fleet capacity.</p>
                     </div>
-                    <p class="inspector-explainer">Fixed-size raw array stack with <code>topIndex</code>. Newest actions sit on top.</p>
-                    <div class="stack-visualizer" id="stackVisualizer">
-                        <div class="empty-state">Stack is empty. Add or remove items in cart to see frames pushed here.</div>
+                    <button class="secondary-btn" onclick="refreshAdminDashboard()">Refresh Data</button>
+                </div>
+
+                <!-- Summary Metrics Row -->
+                <div class="admin-metrics-grid" id="adminMetricsGrid">
+                    <!-- Dynamically generated -->
+                </div>
+
+                <!-- Weekly Sales Heatmap Table -->
+                <div class="admin-card">
+                    <div class="admin-card-header">
+                        <div>
+                            <h2 class="admin-card-title">Weekly Revenue Matrix</h2>
+                            <p class="admin-card-desc">Daily sales performance broken down by restaurant partner.</p>
+                        </div>
+                    </div>
+                    <div class="table-scroller" id="salesMatrixContainer">
+                        <!-- Populated by JS -->
                     </div>
                 </div>
 
-                <!-- Circular Queue Inspector Card -->
-                <div class="card">
-                    <div class="card-header">
-                        <h3>🔄 Circular Kitchen Queue [Module IX]</h3>
-                        <span class="badge badge-success" id="inspQueueBadge">0 / 50</span>
+                <!-- Active Kitchen Queue Board -->
+                <div class="admin-card" style="margin-top: 32px;">
+                    <div class="admin-card-header">
+                        <div>
+                            <h2 class="admin-card-title">Kitchen Dispatch Board</h2>
+                            <p class="admin-card-desc">Orders currently in preparation or awaiting driver pickup.</p>
+                        </div>
+                        <button class="primary-action-btn" onclick="adminCookNextOrder()">Cook Next Order</button>
                     </div>
-                    <p class="inspector-explainer">Circular buffer with <code>frontIndex</code> and <code>rearIndex</code> modulo wrap-around.</p>
-                    <div class="queue-visualizer" id="queueVisualizer">
-                        <div class="empty-state">Queue is empty. Place orders to see circular slots populated.</div>
-                    </div>
-                </div>
-
-                <!-- Recently Viewed Stack -->
-                <div class="card">
-                    <div class="card-header">
-                        <h3>👁️ Recently Viewed Dishes Stack [Module VIII]</h3>
-                    </div>
-                    <p class="inspector-explainer">LIFO stack updated whenever dishes are searched or viewed.</p>
-                    <div id="recentDishesVisualizer">
-                        <div class="empty-state">No dishes viewed yet.</div>
+                    <div class="table-scroller" id="adminOrdersTableContainer">
+                        <!-- Orders Table -->
                     </div>
                 </div>
 
-                <!-- STL Overview -->
-                <div class="card">
-                    <div class="card-header">
-                        <h3>🌐 STL Registry Overview [Module X]</h3>
+                <!-- Delivery Fleet Status -->
+                <div class="admin-card" style="margin-top: 32px;">
+                    <div class="admin-card-header">
+                        <div>
+                            <h2 class="admin-card-title">Delivery Fleet Availability</h2>
+                            <p class="admin-card-desc">Active delivery partners and vehicle assignments.</p>
+                        </div>
                     </div>
-                    <div id="stlOverviewContainer">
-                        <p class="text-muted">Loading STL container registry...</p>
+                    <div class="riders-admin-grid" id="adminRidersGrid">
+                        <!-- Riders cards -->
                     </div>
                 </div>
-            </div>
-        </section>
 
-        <!-- TAB 7: BENCHMARKS & STL -->
-        <section id="tab-benchmarks" class="tab-pane">
-            <div class="section-header">
-                <div>
-                    <h2>Live Algorithmic Benchmarks & Complexity [Module VII, X]</h2>
-                    <p class="section-desc">High-resolution clock timing: Linear vs Binary Search, Bubble Sort vs std::sort, and Custom DS vs STL</p>
+                <!-- Delivery Zone Distance Reference -->
+                <div class="admin-card" style="margin-top: 32px;">
+                    <div class="admin-card-header">
+                        <div>
+                            <h2 class="admin-card-title">Inter-Zone Distance Matrix (Kilometres)</h2>
+                            <p class="admin-card-desc">Used for calculating transparent delivery transit fees and estimated arrival times.</p>
+                        </div>
+                    </div>
+                    <div class="table-scroller" id="distanceMatrixContainer">
+                        <!-- Distance table -->
+                    </div>
                 </div>
-                <div class="button-group">
-                    <button class="primary-btn" onclick="runBenchmark()">⚡ Run Benchmark</button>
-                    <button class="btn-secondary" onclick="runCompareDS()">⚖️ Compare Hand-crafted vs STL</button>
-                </div>
-            </div>
-
-            <!-- Benchmark Results -->
-            <div id="benchmarkResultsArea">
-                <div class="empty-state">Click <strong>Run Benchmark</strong> to execute high-resolution C++ timing tests.</div>
-            </div>
-
-            <!-- Big O Complexity Reference Table -->
-            <div class="card" style="margin-top: 24px;">
-                <div class="card-header">
-                    <h3>Theoretical Asymptotic Complexity Map (All FoodRush Features)</h3>
-                    <span class="badge badge-info">Module VII Big-O Analysis</span>
-                </div>
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Feature</th>
-                            <th>Data Structure</th>
-                            <th>Time Complexity</th>
-                            <th>Space Complexity</th>
-                            <th>Explanation</th>
-                        </tr>
-                    </thead>
-                    <tbody id="complexityTableBody">
-                        <tr><td>Browse Catalog</td><td>1D Fixed Array</td><td>O(1) direct / O(N) scan</td><td>O(1)</td><td>Direct indexing by restaurant ID or sequential traversal</td></tr>
-                        <tr><td>Dish Search</td><td>String Pattern Matcher</td><td>O(M * K)</td><td>O(1)</td><td>Linear scan across items with inner substring matcher</td></tr>
-                        <tr><td>Cart Undo Stack</td><td>Custom ArrayStack</td><td>O(1) push & pop</td><td>O(CAPACITY)</td><td>Direct topIndex increment/decrement, zero allocations</td></tr>
-                        <tr><td>Kitchen Queue</td><td>Circular Buffer</td><td>O(1) enqueue & dequeue</td><td>O(CAPACITY)</td><td>Modulo arithmetic wrap-around front/rear pointers</td></tr>
-                        <tr><td>Sales Matrix Analytics</td><td>2D Array Matrix (4x7)</td><td>O(R * D)</td><td>O(R * D)</td><td>Full row/column summations across restaurants and days</td></tr>
-                        <tr><td>Zone Distance Lookup</td><td>2D Distance Matrix (5x5)</td><td>O(1) direct lookup</td><td>O(Z^2)</td><td>Direct symmetric 2D matrix element access</td></tr>
-                        <tr><td>Coupon Lookup</td><td>std::map (Red-Black Tree)</td><td>O(log C)</td><td>O(C)</td><td>Balanced search tree dictionary lookup</td></tr>
-                        <tr><td>Palindrome Bonus</td><td>String Reversal</td><td>O(L)</td><td>O(L)</td><td>Single-pass two-pointer string reversal</td></tr>
-                    </tbody>
-                </table>
             </div>
         </section>
 
     </main>
 
-    <!-- Footer -->
-    <footer class="app-footer">
-        <p><strong>FoodRush</strong> - Comprehensive C++ Food Delivery Engine Architecture | Pair Programming CS Project</p>
-        <p class="footer-modules">Covers Syllabus Modules I through X with verified hand-crafted array structures and STL counterparts.</p>
-    </footer>
+    <!-- ================================================================= -->
+    <!-- SLIDE-OVER CART DRAWER                                            -->
+    <!-- ================================================================= -->
+    <div id="cartDrawerOverlay" class="drawer-overlay" onclick="toggleCartDrawer(false)"></div>
+    <aside id="cartDrawer" class="cart-drawer" aria-label="Shopping Bag">
+        <div class="drawer-header">
+            <div class="drawer-title-group">
+                <h2 class="drawer-title">Your Order</h2>
+                <span class="drawer-count-chip" id="drawerItemCount">0 items</span>
+            </div>
+            <button class="drawer-close-btn" onclick="toggleCartDrawer(false)" aria-label="Close bag">✕</button>
+        </div>
 
-    <!-- Notification Toast -->
-    <div id="toast" class="toast"></div>
+        <!-- Drawer Content -->
+        <div class="drawer-body" id="cartDrawerBody">
+            <div class="drawer-empty-state">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#6B645B" stroke-width="1.4"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
+                <p>Your bag is empty.</p>
+                <span>Add delicious dishes from our partner kitchens!</span>
+            </div>
+        </div>
+
+        <!-- Drawer Footer (Checkout Details) -->
+        <div class="drawer-footer" id="cartDrawerFooter" style="display: none;">
+            <!-- Undo Bar in Cart -->
+            <div class="drawer-undo-bar">
+                <button class="drawer-undo-action" onclick="cartUndo()">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
+                    <span>Undo Last Edit</span>
+                </button>
+                <button class="drawer-clear-action" onclick="cartClear()">Clear All</button>
+            </div>
+
+            <!-- Delivery Zone and Options -->
+            <div class="drawer-config-group">
+                <label class="drawer-label">Delivery Destination</label>
+                <select id="cartZoneSelect" class="drawer-select" onchange="refreshCartView()">
+                    <option value="0">Central Zone</option>
+                    <option value="1">North Zone</option>
+                    <option value="2">South Zone</option>
+                    <option value="3">East Zone</option>
+                    <option value="4">West Zone</option>
+                </select>
+
+                <label class="drawer-checkbox-row">
+                    <input type="checkbox" id="cartExpressCheckbox" onchange="refreshCartView()">
+                    <span>
+                        <strong>Express Priority (₹45)</strong>
+                        <small>Kitchen preps first · Priority courier assignment</small>
+                    </span>
+                </label>
+            </div>
+
+            <!-- Promo Coupon -->
+            <div class="drawer-promo-group">
+                <div class="promo-input-wrap">
+                    <input type="text" id="drawerCouponInput" placeholder="Promo code (e.g. FIRST50)" onkeyup="if(event.key==='Enter') applyCoupon()">
+                    <button class="promo-apply-btn" onclick="applyCoupon()">Apply</button>
+                </div>
+            </div>
+
+            <!-- Bill Breakdown -->
+            <div class="drawer-bill-summary">
+                <div class="bill-line"><span>Item Subtotal</span><span id="billSubtotal">₹0.00</span></div>
+                <div class="bill-line text-success" id="billDiscountRow" style="display: none;">
+                    <span>Promotion Discount</span><span id="billDiscount">-₹0.00</span>
+                </div>
+                <div class="bill-line"><span>Taxes & Packaging (5% GST)</span><span id="billTax">₹0.00</span></div>
+                <div class="bill-line"><span>Delivery Fee</span><span id="billDelivery">₹0.00</span></div>
+                <div class="bill-divider"></div>
+                <div class="bill-line total-line"><span>To Pay</span><span id="billTotal">₹0.00</span></div>
+            </div>
+
+            <!-- Customer Details for Checkout -->
+            <div class="drawer-customer-fields">
+                <input type="text" id="checkoutCustName" placeholder="Your Name" value="Aarav Sharma">
+                <input type="text" id="checkoutCustStreet" placeholder="Delivery Street & Flat" value="42 Residency Road">
+            </div>
+
+            <button class="drawer-checkout-btn" onclick="submitCheckout()">
+                <span>Place Order</span>
+                <span id="btnPayAmount">₹0.00</span>
+            </button>
+        </div>
+    </aside>
+
+    <!-- ================================================================= -->
+    <!-- VIVA EXAMINER MODAL (Opened only via 'V' or 'For examiners' link) -->
+    <!-- ================================================================= -->
+    <div id="vivaModalOverlay" class="viva-modal-overlay" style="display: none;" onclick="closeVivaModal()">
+        <div class="viva-modal" onclick="event.stopPropagation()">
+            <div class="viva-modal-header">
+                <div>
+                    <span class="viva-modal-tag">CS SYLLABUS INSPECTION</span>
+                    <h2 class="viva-modal-title" id="vivaModalTitle">Examiner Workbench</h2>
+                </div>
+                <div class="viva-tab-switches">
+                    <button class="viva-tab-btn active" id="vtab-inspector" onclick="switchVivaTab('inspector')">Memory Inspector</button>
+                    <button class="viva-tab-btn" id="vtab-benchmarks" onclick="switchVivaTab('benchmarks')">Benchmarks</button>
+                    <button class="viva-tab-btn" id="vtab-map" onclick="switchVivaTab('map')">Module Map</button>
+                </div>
+                <button class="viva-close-btn" onclick="closeVivaModal()">✕</button>
+            </div>
+
+            <div class="viva-modal-body">
+                <!-- VIVA TAB 1: INSPECTOR -->
+                <div id="vivaPaneInspector" class="viva-pane active">
+                    <div class="viva-grid">
+                        <div class="viva-card">
+                            <div class="viva-card-header">
+                                <h3>Module VIII: Hand-crafted Array Stack</h3>
+                                <span class="viva-chip" id="vivaStackCount">Depth: 0/50</span>
+                            </div>
+                            <p class="viva-card-desc">Contiguous raw 1D array managed via <code>topIndex</code>. Used for Cart Undo history (LIFO).</p>
+                            <div class="viva-stack-container" id="vivaStackView">
+                                <div class="empty-viva">Stack is empty. Add or remove items in cart to see frames pushed here.</div>
+                            </div>
+                        </div>
+
+                        <div class="viva-card">
+                            <div class="viva-card-header">
+                                <h3>Module IX: Hand-crafted Circular Queue</h3>
+                                <span class="viva-chip" id="vivaQueueCount">Length: 0/50</span>
+                            </div>
+                            <p class="viva-card-desc">Fixed circular buffer with modulo arithmetic <code>(rear + 1) % CAPACITY</code>. Used for Kitchen FIFO dispatch.</p>
+                            <div class="viva-queue-container" id="vivaQueueView">
+                                <div class="empty-viva">Queue is empty. Place an order to see circular buffer slots.</div>
+                            </div>
+                        </div>
+
+                        <div class="viva-card">
+                            <div class="viva-card-header">
+                                <h3>Module VIII: Recently Viewed Stack</h3>
+                                <span class="viva-chip" id="vivaRecentCount">0 items</span>
+                            </div>
+                            <p class="viva-card-desc">LIFO memory tracking recently searched and inspected menu items.</p>
+                            <div id="vivaRecentView">
+                                <div class="empty-viva">No items viewed yet.</div>
+                            </div>
+                        </div>
+
+                        <div class="viva-card">
+                            <div class="viva-card-header">
+                                <h3>Module X: Standard Template Library (STL) Registry</h3>
+                            </div>
+                            <p class="viva-card-desc">Active STL containers in C++ engine memory.</p>
+                            <div id="vivaStlView" style="font-family: var(--font-mono); font-size: 13px; line-height: 1.8;">
+                                Loading STL state...
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- VIVA TAB 2: BENCHMARKS -->
+                <div id="vivaPaneBenchmarks" class="viva-pane">
+                    <div class="viva-bench-actions">
+                        <button class="primary-action-btn" onclick="runVivaBenchmark()">Run Asymptotic Benchmark (Module VII)</button>
+                        <button class="secondary-btn" onclick="runVivaCompareDS()">Compare Array DS vs STL (Module X)</button>
+                    </div>
+
+                    <div id="vivaBenchmarkOutput" style="margin-top: 20px;">
+                        <p class="text-muted">Click a benchmark button above to execute high-resolution C++ chrono timing.</p>
+                    </div>
+                </div>
+
+                <!-- VIVA TAB 3: MODULE MAP -->
+                <div id="vivaPaneMap" class="viva-pane">
+                    <div class="table-scroller">
+                        <table class="viva-table">
+                            <thead>
+                                <tr>
+                                    <th>Module</th>
+                                    <th>Topic</th>
+                                    <th>Feature Implementation</th>
+                                    <th>Data Structure / Algorithm</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td><strong>Module I</strong></td>
+                                    <td>Basics & Math</td>
+                                    <td>Bill Calculation, GST Tax (5%), Delivery distance fees</td>
+                                    <td><code>static_cast</code>, bitwise dietary flags (Spicy, GlutenFree, ChefSpecial)</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Module II</strong></td>
+                                    <td>Control & Functions</td>
+                                    <td>Command Dispatcher, Currency formatting overloads</td>
+                                    <td>Pass-by-reference bounds guards, switch/ladder dispatcher</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Module III</strong></td>
+                                    <td>1D Arrays</td>
+                                    <td>Menu prices, ratings, and stock analytics</td>
+                                    <td>Sum, Min, Max, Linear Search, Bubble Sort on prices array</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Module IV</strong></td>
+                                    <td>2D Arrays</td>
+                                    <td>6x7 Sales Revenue Matrix & 5x5 Zone Distance Lookup</td>
+                                    <td>Row sums (restaurant weekly totals), col sums (daily platform totals)</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Module V</strong></td>
+                                    <td>Strings</td>
+                                    <td>Dish search, Levenshtein "Did you mean", Tracking code check digit</td>
+                                    <td>Substring matcher, string reversal check digit generator</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Module VI</strong></td>
+                                    <td>Structures</td>
+                                    <td>MenuItem, Restaurant, Order, Address, Rider models</td>
+                                    <td>Nested structs, fixed arrays of structs, JSON serialization methods</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Module VII</strong></td>
+                                    <td>Performance</td>
+                                    <td>Stopwatch benchmarks: Linear vs Binary search, Bubble vs Introsort</td>
+                                    <td>O(N) vs O(log N) on 30k elements, O(N²) vs O(N log N) sort</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Module VIII</strong></td>
+                                    <td>Stack</td>
+                                    <td>Cart Undo History & Recently Viewed dishes</td>
+                                    <td>Hand-crafted fixed array stack with <code>topIndex</code> LIFO pop/push</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Module IX</strong></td>
+                                    <td>Queue</td>
+                                    <td>Kitchen Order Queue, Express Priority, Rider circular rotation</td>
+                                    <td>Hand-crafted circular queue with modulo wrap-around arithmetic</td>
+                                </tr>
+                                <tr>
+                                    <td><strong>Module X</strong></td>
+                                    <td>STL</td>
+                                    <td>std::map (coupons), std::set (cuisines), std::vector, std::deque</td>
+                                    <td>Side-by-side performance comparison against custom array structures</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- UNDO TOAST NOTIFICATION -->
+    <div id="undoToast" class="undo-toast">
+        <div class="undo-toast-content">
+            <span id="undoToastMsg">Item updated in your bag</span>
+            <button class="undo-toast-btn" onclick="cartUndo()">Undo</button>
+        </div>
+    </div>
+
+    <!-- SITE FOOTER -->
+    <footer class="site-footer">
+        <div class="footer-container">
+            <div class="footer-brand">
+                <span class="brand-name">FoodRush</span>
+                <p class="footer-tagline">Delicious food, thoughtfully prepared and promptly delivered.</p>
+            </div>
+
+            <div class="footer-bottom">
+                <span>© 2026 FoodRush Technologies. All rights reserved.</span>
+                <!-- Examiner link toggles Viva Mode discreetly -->
+                <button class="examiner-link" onclick="toggleVivaMode()">For examiners</button>
+            </div>
+        </div>
+    </footer>
 
     <script src="app.js"></script>
 </body>

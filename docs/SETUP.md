@@ -1,9 +1,11 @@
-# FoodRush - Setup & Execution Guide
+## Live Production URL (Vercel)
+FoodRush is deployed live and globally accessible at:
+- **Production URL:** [https://foodrush-kappa.vercel.app](https://foodrush-kappa.vercel.app)
+- **Deployment URL:** [https://foodrush-6utq7thox-foraitools28-9900s-projects.vercel.app](https://foodrush-6utq7thox-foraitools28-9900s-projects.vercel.app)
 
-## Prerequisites
-1. **Operating System:** Windows, Linux, or macOS.
-2. **C++ Compiler:** `g++` with C++17 support (e.g. MinGW-w64 on Windows, GCC on Linux).
-3. **Node.js:** Node.js LTS (v18+).
+---
+
+## Prerequisites (For Local Execution)
 
 ---
 

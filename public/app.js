@@ -1,1180 +1,859 @@
 // ============================================================================
-// FoodRush - Modern Storefront & Administration Client
-// Dual-Surface Architecture: Customer App / Admin vs Hidden Viva Examiner Mode
+// FoodRush POS - Client Application Logic
+// Features: Multi-Table Dine-In, Live Kitchen Board, Past Bills & Thermal Receipts,
+// Staff Attendance, 6x7 Sales Matrix, Viva Examiner Mode
 // ============================================================================
 
-const API_BASE = '/api';
-
-// Application State
-let appState = {
-    restaurants: [],
-    menu: [],
-    activeRestaurantId: 0,
-    activeCuisine: 'All',
-    activeDiet: 'all',
-    cart: { itemCount: 0, items: [], total: 0, undoStackDepth: 0 },
-    activeOrder: null,
+const appState = {
+    activeView: 'billing',
+    activeTableId: 1,
+    selectedOutletId: 0,
     searchQuery: '',
-    searchMatches: [],
-    topDishes: [],
-    isTopRatedMode: false,
-    searchDebounceTimer: null,
-    vivaActive: false,
-    zoneNames: ["Central", "North", "South", "East", "West"]
+    outlets: [],
+    tables: [],
+    dishes: [],
+    staff: [],
+    activeOrders: [],
+    pastBills: [],
+    salesMatrixData: null,
+    currentOrder: null,
+    vivaMode: false,
+    lastModules: []
 };
 
-// ============================================================================
-// NAVIGATION & ROUTING
-// ============================================================================
-
-function navigateTo(viewId) {
-    document.querySelectorAll('.app-view').forEach(el => el.classList.remove('active'));
-    document.querySelectorAll('.nav-link').forEach(el => el.classList.remove('active'));
-
-    const targetView = document.getElementById(
-        viewId === 'admin' ? 'viewAdmin' : (viewId === 'tracker' ? 'viewTracker' : 'viewStorefront')
-    );
-    if (targetView) targetView.classList.add('active');
-
-    const navBtn = document.getElementById(
-        viewId === 'admin' ? 'navAdmin' : (viewId === 'tracker' ? 'navTracker' : 'navStorefront')
-    );
-    if (navBtn) navBtn.classList.add('active');
-
-    if (viewId === 'admin') {
-        refreshAdminDashboard();
-    } else if (viewId === 'tracker' && !appState.activeOrder) {
-        lookupOrder(); // Fetch latest order if available
-    }
-
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-}
-
-window.addEventListener('hashchange', () => {
-    const hash = window.location.hash.replace('#', '');
-    if (hash === 'admin') navigateTo('admin');
-    else if (hash === 'tracker') navigateTo('tracker');
-    else navigateTo('storefront');
-});
-
-// ============================================================================
-// API CALLER WITH ERROR HANDLING & VIVA TRACKING
-// ============================================================================
-
-async function callApi(endpoint, method = 'GET', body = null) {
+// API Helper
+async function apiCall(endpoint, method = 'GET', body = null) {
     try {
-        const options = { method, headers: { 'Content-Type': 'application/json' } };
+        const options = {
+            method,
+            headers: { 'Content-Type': 'application/json' }
+        };
         if (body) options.body = JSON.stringify(body);
 
-        const res = await fetch(`${API_BASE}${endpoint}`, options);
-        const json = await res.json();
+        const res = await fetch(endpoint, options);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
 
-        // Update Viva mode badge if active
-        const modules = json.modules || json.handled_by;
-        if (modules && modules.length > 0) {
-            updateVivaBadge(modules);
+        // Track viva module metadata
+        if (data.modules && data.modules.length > 0) {
+            appState.lastModules = data.modules;
+            updateVivaBanner(data.modules[0]);
         }
-
-        return json;
+        return data;
     } catch (err) {
         console.error(`API Error on ${endpoint}:`, err);
-        return { success: false, message: err.message };
-    }
-}
-
-// ============================================================================
-// STOREFRONT: RESTAURANTS & MENU
-// ============================================================================
-
-async function loadStorefrontData() {
-    const [restRes, menuRes] = await Promise.all([
-        callApi('/restaurants'),
-        callApi('/menu')
-    ]);
-
-    if (restRes.success) {
-        appState.restaurants = restRes.data || [];
-        renderRestaurantsGrid(appState.restaurants);
-    }
-
-    if (menuRes.success) {
-        appState.menu = menuRes.data || [];
-        applyDishesFilter();
-        populateRestockDropdown();
-    }
-}
-
-function renderRestaurantsGrid(restaurants) {
-    const container = document.getElementById('restaurantsGrid');
-    if (!container) return;
-
-    // Palette of tasteful background colors for cuisine artwork
-    const cuisineArts = {
-        "Biryani & Mughlai": { bg: "#FBF2E9", color: "#D9531E", icon: "🍛" },
-        "South Indian": { bg: "#EDF5F0", color: "#2F7D5B", icon: "🥞" },
-        "Artisan Italian": { bg: "#F9ECE8", color: "#B83A20", icon: "🍕" },
-        "Japanese": { bg: "#F4EFF6", color: "#7B4F8D", icon: "🍜" },
-        "American Gourmet": { bg: "#FBF5E6", color: "#A87216", icon: "🍔" },
-        "Desserts & Bakery": { bg: "#FBF0F4", color: "#B34A7B", icon: "🍰" }
-    };
-
-    container.innerHTML = restaurants.map(r => {
-        const art = cuisineArts[r.cuisine] || { bg: "#F4F1EC", color: "#6B645B", icon: "🍽️" };
-        const isActive = appState.activeRestaurantId === r.id;
-
-        return `
-            <div class="restaurant-card ${isActive ? 'active' : ''}" onclick="selectRestaurant(${r.id})">
-                <div class="rest-artwork" style="background-color: ${art.bg};">
-                    <span style="font-size: 40px;">${art.icon}</span>
-                    <span class="rest-cuisine-badge">${r.cuisine}</span>
-                </div>
-                <div class="rest-info">
-                    <div class="rest-header-row">
-                        <h3 class="rest-name">${r.name}</h3>
-                        <span class="rest-rating-pill">★ ${r.rating.toFixed(1)}</span>
-                    </div>
-                    <div class="rest-stats-row">
-                        <span>${r.etaMinutes} mins</span>
-                        <span class="dot-separator"></span>
-                        <span>Zone ${r.zoneId} (${appState.zoneNames[r.zoneId]})</span>
-                        <span class="dot-separator"></span>
-                        <span>Min ₹${r.minOrder.toFixed(0)}</span>
-                    </div>
-                </div>
-            </div>
-        `;
-    }).join('');
-}
-
-function selectRestaurant(restId) {
-    if (appState.activeRestaurantId === restId) {
-        appState.activeRestaurantId = 0; // Toggle off filter
-        document.getElementById('menuRestaurantName').textContent = "All Dishes";
-        document.getElementById('menuRestaurantMeta').textContent = "Showing freshly prepared specialities";
-    } else {
-        appState.activeRestaurantId = restId;
-        appState.isTopRatedMode = false;
-        appState.searchQuery = '';
-        const rest = appState.restaurants.find(r => r.id === restId);
-        if (rest) {
-            document.getElementById('menuRestaurantName').textContent = rest.name;
-            document.getElementById('menuRestaurantMeta').textContent = `${rest.cuisine} · Minimum order ₹${rest.minOrder.toFixed(0)}`;
-        }
-    }
-
-    renderRestaurantsGrid(appState.restaurants);
-    applyDishesFilter();
-
-    const menuEl = document.getElementById('menuSection');
-    if (menuEl) menuEl.scrollIntoView({ behavior: 'smooth' });
-}
-
-function selectCuisineFilter(cuisine) {
-    appState.activeCuisine = cuisine;
-    appState.isTopRatedMode = false;
-    appState.searchQuery = '';
-
-    const input = document.getElementById('mainSearchInput');
-    if (input) input.value = '';
-    const clearBtn = document.getElementById('searchClearBtn');
-    if (clearBtn) clearBtn.style.display = 'none';
-    const didYouMean = document.getElementById('didYouMeanBar');
-    if (didYouMean) didYouMean.style.display = 'none';
-    const resetBtn = document.getElementById('menuResetBtn');
-    if (resetBtn) resetBtn.style.display = 'none';
-
-    document.querySelectorAll('.cuisine-chip').forEach(btn => {
-        btn.classList.toggle('active', btn.textContent.trim().includes(cuisine) || (cuisine === 'All' && btn.id === 'chipAll'));
-    });
-
-    document.getElementById('menuRestaurantName').textContent = cuisine === 'All' ? "All Dishes" : `${cuisine} Specialities`;
-    document.getElementById('menuRestaurantMeta').textContent = cuisine === 'All' ? "Showing freshly prepared specialities" : `Curated authentic dishes from our kitchens`;
-
-    applyDishesFilter();
-}
-
-async function selectTopRatedFilter() {
-    appState.isTopRatedMode = true;
-    appState.activeCuisine = 'TopRated';
-    appState.activeRestaurantId = 0;
-    appState.searchQuery = '';
-
-    const input = document.getElementById('mainSearchInput');
-    if (input) input.value = '';
-    const clearBtn = document.getElementById('searchClearBtn');
-    if (clearBtn) clearBtn.style.display = 'none';
-    const didYouMean = document.getElementById('didYouMeanBar');
-    if (didYouMean) didYouMean.style.display = 'none';
-
-    document.querySelectorAll('.cuisine-chip').forEach(btn => btn.classList.remove('active'));
-    document.getElementById('chipTopRated')?.classList.add('active');
-
-    const resp = await callApi('/top-dishes?k=8');
-    if (resp.success && resp.data) {
-        appState.topDishes = resp.data.dishes || [];
-        document.getElementById('menuRestaurantName').textContent = "Top Rated Leaderboard";
-        document.getElementById('menuRestaurantMeta').textContent = "Ranked live by verified diner ratings and reviews (O(N log K))";
-        const resetBtn = document.getElementById('menuResetBtn');
-        if (resetBtn) resetBtn.style.display = 'inline-block';
-        applyDishesFilter();
-    }
-}
-
-function filterMenuByDiet(diet) {
-    appState.activeDiet = diet;
-    document.querySelectorAll('.filter-pill').forEach(btn => {
-        btn.classList.toggle('active', btn.getAttribute('onclick')?.includes(diet));
-    });
-
-    applyDishesFilter();
-}
-
-function applyDishesFilter() {
-    let baseList = [];
-
-    if (appState.searchQuery && appState.searchMatches.length >= 0) {
-        baseList = [...appState.searchMatches];
-    } else if (appState.isTopRatedMode && appState.topDishes.length > 0) {
-        baseList = [...appState.topDishes];
-    } else {
-        baseList = [...appState.menu];
-
-        // Filter by restaurant
-        if (appState.activeRestaurantId > 0) {
-            baseList = baseList.filter(d => d.restaurantId === appState.activeRestaurantId);
-        }
-
-        // Filter by cuisine
-        if (appState.activeCuisine !== 'All' && !appState.isTopRatedMode) {
-            const matchingRestIds = appState.restaurants
-                .filter(r => r.cuisine.toLowerCase().includes(appState.activeCuisine.toLowerCase()))
-                .map(r => r.id);
-            baseList = baseList.filter(d => matchingRestIds.includes(d.restaurantId));
-        }
-    }
-
-    // Apply dietary filter
-    let filtered = baseList;
-    if (appState.activeDiet === 'veg') {
-        filtered = filtered.filter(d => d.isVeg);
-    } else if (appState.activeDiet === 'nonveg') {
-        filtered = filtered.filter(d => !d.isVeg);
-    } else if (appState.activeDiet === 'special') {
-        filtered = filtered.filter(d => d.isChefSpecial);
-    }
-
-    renderDishesGrid(filtered);
-}
-
-function renderDishesGrid(dishes) {
-    const container = document.getElementById('dishesGrid');
-    if (!container) return;
-
-    if (dishes.length === 0) {
-        container.innerHTML = `
-            <div class="empty-state-card" style="grid-column: 1 / -1; padding: 40px 20px; text-align: center;">
-                <p style="font-weight:600; color:var(--text-main);">No dishes match your selection.</p>
-                <button class="secondary-btn" onclick="clearSearch()" style="margin-top:12px;">Reset All Filters</button>
-            </div>
-        `;
-        return;
-    }
-
-    container.innerHTML = dishes.map(dish => {
-        const inCartItem = appState.cart.items?.find(c => c.itemId === dish.id);
-        const qty = inCartItem ? inCartItem.quantity : 0;
-        const availStock = dish.availableStock !== undefined ? dish.availableStock : Math.max(0, dish.stock - (dish.reservedStock || 0));
-        const isSoldOut = availStock <= 0;
-        const rating = dish.rating ? dish.rating.toFixed(1) : "4.8";
-        const count = dish.ratingCount || 50;
-
-        return `
-            <div class="dish-card">
-                <div class="dish-top">
-                    <div class="dish-indicator-row">
-                        <span class="${dish.isVeg ? 'mark-veg' : 'mark-nonveg'}" title="${dish.isVeg ? 'Vegetarian' : 'Non-Vegetarian'}"></span>
-                        ${dish.isChefSpecial ? '<span class="tag-badge tag-chef">Chef Special</span>' : ''}
-                        ${dish.isSpicy ? '<span class="tag-badge tag-spicy">Spicy</span>' : ''}
-                        ${dish.isGlutenFree ? '<span class="tag-badge tag-gf">Gluten Free</span>' : ''}
-                        
-                        <!-- Customer Rating Badge (Clickable to Rate) -->
-                        <span class="dish-rating-badge" onclick="openRatingModal(${dish.id}, '${dish.name.replace(/'/g, "\\'")}')" title="Customer Rating · Click to submit a review">
-                            ★ ${rating} <small>(${count})</small>
-                        </span>
-                    </div>
-                    <h4 class="dish-name">${dish.name}</h4>
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <span class="dish-details">${dish.category} · ${dish.calories} kcal</span>
-                        ${isSoldOut
-                            ? '<span class="stock-pill out">Sold Out</span>'
-                            : (availStock <= 5 ? `<span class="stock-pill low">Only ${availStock} left</span>` : `<span class="stock-pill">${availStock} in stock</span>`)}
-                    </div>
-                </div>
-                <div class="dish-bottom">
-                    <span class="dish-price">₹${dish.price.toFixed(2)}</span>
-                    <div>
-                        ${isSoldOut && qty === 0 ? `
-                            <button class="btn-add-item disabled" disabled>Sold Out</button>
-                        ` : (qty === 0 ? `
-                            <button class="btn-add-item" onclick="addToCart(${dish.id}, 1)">+ Add</button>
-                        ` : `
-                            <div class="qty-stepper">
-                                <button class="stepper-btn" onclick="addToCart(${dish.id}, -1)">−</button>
-                                <span class="stepper-qty">${qty}</span>
-                                <button class="stepper-btn ${qty >= availStock ? 'disabled' : ''}" onclick="addToCart(${dish.id}, 1)" ${qty >= availStock ? 'disabled' : ''}>+</button>
-                            </div>
-                        `)}
-                    </div>
-                </div>
-            </div>
-        `;
-    }).join('');
-}
-
-// ============================================================================
-// SEARCH LOGIC & DID YOU MEAN
-// ============================================================================
-
-function handleSearchInput(e) {
-    clearTimeout(appState.searchDebounceTimer);
-    const query = e.target.value.trim();
-    appState.searchQuery = query;
-
-    const clearBtn = document.getElementById('searchClearBtn');
-    if (clearBtn) clearBtn.style.display = query.length > 0 ? 'block' : 'none';
-
-    if (query.length === 0) {
-        clearSearch();
-        return;
-    }
-
-    // Debounce search by 150ms
-    appState.searchDebounceTimer = setTimeout(async () => {
-        const resp = await callApi(`/search?q=${encodeURIComponent(query)}`);
-        const didYouMeanBar = document.getElementById('didYouMeanBar');
-        const didYouMeanChip = document.getElementById('didYouMeanChip');
-        const resetBtn = document.getElementById('menuResetBtn');
-
-        if (resp.success && resp.data) {
-            appState.searchMatches = resp.data.matches || [];
-            appState.isTopRatedMode = false;
-            document.querySelectorAll('.cuisine-chip').forEach(btn => btn.classList.remove('active'));
-
-            if (resp.data.didYouMean && resp.data.didYouMean.length > 0) {
-                didYouMeanBar.style.display = 'flex';
-                didYouMeanChip.textContent = resp.data.didYouMean;
-            } else {
-                didYouMeanBar.style.display = 'none';
-            }
-
-            document.getElementById('menuRestaurantName').textContent = `Search: "${query}" (${appState.searchMatches.length} found)`;
-            document.getElementById('menuRestaurantMeta').textContent = "Pattern-matched dishes across partner kitchens";
-            if (resetBtn) resetBtn.style.display = 'inline-block';
-
-            applyDishesFilter();
-        }
-    }, 150);
-}
-
-function clearSearch() {
-    appState.searchQuery = '';
-    appState.searchMatches = [];
-    appState.isTopRatedMode = false;
-
-    const input = document.getElementById('mainSearchInput');
-    if (input) input.value = '';
-    const clearBtn = document.getElementById('searchClearBtn');
-    if (clearBtn) clearBtn.style.display = 'none';
-    const didYouMean = document.getElementById('didYouMeanBar');
-    if (didYouMean) didYouMean.style.display = 'none';
-    const resetBtn = document.getElementById('menuResetBtn');
-    if (resetBtn) resetBtn.style.display = 'none';
-
-    document.querySelectorAll('.cuisine-chip').forEach(btn => {
-        btn.classList.toggle('active', btn.id === 'chipAll');
-    });
-    appState.activeCuisine = 'All';
-
-    if (appState.activeRestaurantId > 0) {
-        const rest = appState.restaurants.find(r => r.id === appState.activeRestaurantId);
-        document.getElementById('menuRestaurantName').textContent = rest ? rest.name : "All Dishes";
-        document.getElementById('menuRestaurantMeta').textContent = rest ? `${rest.cuisine} · Minimum order ₹${rest.minOrder.toFixed(0)}` : "Showing freshly prepared specialities";
-    } else {
-        document.getElementById('menuRestaurantName').textContent = "All Dishes";
-        document.getElementById('menuRestaurantMeta').textContent = "Showing freshly prepared specialities";
-    }
-
-    applyDishesFilter();
-}
-
-function applySuggestion() {
-    const chip = document.getElementById('didYouMeanChip');
-    const input = document.getElementById('mainSearchInput');
-    if (chip && input) {
-        input.value = chip.textContent;
-        handleSearchInput({ target: input });
-    }
-}
-
-// ============================================================================
-// CART & UNDO LOGIC
-// ============================================================================
-
-function toggleCartDrawer(open) {
-    const drawer = document.getElementById('cartDrawer');
-    const overlay = document.getElementById('cartDrawerOverlay');
-    if (open) {
-        drawer.classList.add('active');
-        overlay.classList.add('active');
-        refreshCartView();
-    } else {
-        drawer.classList.remove('active');
-        overlay.classList.remove('active');
-    }
-}
-
-async function addToCart(itemId, quantityDelta) {
-    const inCart = appState.cart.items?.find(c => c.itemId === itemId);
-    const currentQty = inCart ? inCart.quantity : 0;
-    const targetQty = currentQty + quantityDelta;
-
-    let resp;
-    if (targetQty <= 0) {
-        resp = await callApi('/cart/remove', 'POST', { itemId });
-    } else {
-        resp = await callApi('/cart/add', 'POST', { itemId, quantity: quantityDelta });
-    }
-
-    if (resp.success) {
-        appState.cart = resp.data;
-        updateCartBadgeCount();
-
-        // Update local available stock
-        const dish = appState.menu.find(d => d.id === itemId);
-        if (dish) {
-            dish.reservedStock = (dish.reservedStock || 0) + quantityDelta;
-            dish.availableStock = Math.max(0, dish.stock - dish.reservedStock);
-        }
-
-        applyDishesFilter();
-        renderCartDrawer();
-        showUndoToast(resp.message || "Your order was updated");
-    } else {
-        showUndoToast(resp.message || "Could not update bag");
-    }
-}
-
-async function cartUndo() {
-    const resp = await callApi('/cart/undo', 'POST');
-    if (resp.success) {
-        appState.cart = resp.data;
-        updateCartBadgeCount();
-
-        // Refresh menu to sync stock levels
-        const menuRes = await callApi('/menu');
-        if (menuRes.success) appState.menu = menuRes.data || [];
-
-        applyDishesFilter();
-        renderCartDrawer();
-        showUndoToast(`Reverted: ${resp.message}`);
-    } else {
-        showUndoToast(resp.message || "Nothing to undo");
-    }
-}
-
-async function cartClear() {
-    const resp = await callApi('/cart/clear', 'POST');
-    if (resp.success) {
-        appState.cart = resp.data;
-        updateCartBadgeCount();
-
-        const menuRes = await callApi('/menu');
-        if (menuRes.success) appState.menu = menuRes.data || [];
-
-        applyDishesFilter();
-        renderCartDrawer();
-    }
-}
-
-async function refreshCartView() {
-    const zone = document.getElementById('cartZoneSelect')?.value || 0;
-    const express = document.getElementById('cartExpressCheckbox')?.checked ? 1 : 0;
-
-    const resp = await callApi(`/cart?zone=${zone}&express=${express}`);
-    if (resp.success) {
-        appState.cart = resp.data;
-        updateCartBadgeCount();
-        renderCartDrawer();
-    }
-}
-
-function updateCartBadgeCount() {
-    const count = appState.cart.itemCount || 0;
-    const badge = document.getElementById('headerCartCount');
-    if (badge) badge.textContent = count;
-}
-
-function renderCartDrawer() {
-    const body = document.getElementById('cartDrawerBody');
-    const footer = document.getElementById('cartDrawerFooter');
-    const countChip = document.getElementById('drawerItemCount');
-
-    countChip.textContent = `${appState.cart.itemCount || 0} items`;
-
-    if (!appState.cart.items || appState.cart.items.length === 0) {
-        body.innerHTML = `
-            <div class="drawer-empty-state">
-                <svg width="44" height="44" viewBox="0 0 24 24" fill="none" stroke="#6B645B" stroke-width="1.5"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
-                <p style="font-weight:600; color:var(--text-main);">Your bag is empty.</p>
-                <span style="font-size:13px; color:var(--text-muted);">Explore our menus and add your favourite dishes.</span>
-            </div>
-        `;
-        footer.style.display = 'none';
-        return;
-    }
-
-    footer.style.display = 'flex';
-
-    body.innerHTML = appState.cart.items.map(item => `
-        <div class="cart-item-row">
-            <div class="cart-item-info">
-                <span class="cart-item-name">${item.name}</span>
-                <span class="cart-item-unit-price">₹${item.price.toFixed(2)} each</span>
-            </div>
-            <div class="cart-item-controls">
-                <div class="qty-stepper">
-                    <button class="stepper-btn" onclick="addToCart(${item.itemId}, -1)">−</button>
-                    <span class="stepper-qty">${item.quantity}</span>
-                    <button class="stepper-btn" onclick="addToCart(${item.itemId}, 1)">+</button>
-                </div>
-                <span class="cart-item-total">₹${item.lineTotal.toFixed(2)}</span>
-            </div>
-        </div>
-    `).join('');
-
-    // Summary numbers
-    document.getElementById('billSubtotal').textContent = `₹${(appState.cart.subtotal || 0).toFixed(2)}`;
-    document.getElementById('billTax').textContent = `₹${(appState.cart.tax || 0).toFixed(2)}`;
-    document.getElementById('billDelivery').textContent = `₹${(appState.cart.deliveryFee || 0).toFixed(2)}`;
-    document.getElementById('billTotal').textContent = `₹${(appState.cart.total || 0).toFixed(2)}`;
-    document.getElementById('btnPayAmount').textContent = `₹${(appState.cart.total || 0).toFixed(2)}`;
-
-    const discountRow = document.getElementById('billDiscountRow');
-    const discountVal = document.getElementById('billDiscount');
-    if (appState.cart.discountAmount > 0) {
-        discountRow.style.display = 'flex';
-        discountVal.textContent = `-₹${appState.cart.discountAmount.toFixed(2)}`;
-    } else {
-        discountRow.style.display = 'none';
-    }
-}
-
-async function applyCoupon() {
-    const input = document.getElementById('drawerCouponInput');
-    const code = input ? input.value.trim() : '';
-    if (!code) return;
-
-    const resp = await callApi('/coupon', 'POST', { code });
-    if (resp.success) {
-        showUndoToast(resp.message);
-        refreshCartView();
-    } else {
-        showUndoToast(resp.message);
-    }
-}
-
-function showUndoToast(msg) {
-    const toast = document.getElementById('undoToast');
-    const msgEl = document.getElementById('undoToastMsg');
-    if (!toast || !msgEl) return;
-
-    msgEl.textContent = msg;
-    toast.classList.add('show');
-    clearTimeout(toast._timer);
-    toast._timer = setTimeout(() => toast.classList.remove('show'), 4000);
-}
-
-// ============================================================================
-// CHECKOUT & LIVE ORDER TRACKING
-// ============================================================================
-
-async function submitCheckout() {
-    if (!appState.cart.items || appState.cart.items.length === 0) return;
-
-    const name = document.getElementById('checkoutCustName')?.value.trim() || 'Aarav Sharma';
-    const street = document.getElementById('checkoutCustStreet')?.value.trim() || '42 Residency Road';
-    const zoneId = parseInt(document.getElementById('cartZoneSelect')?.value || 0);
-    const isExpress = document.getElementById('cartExpressCheckbox')?.checked || false;
-
-    const resp = await callApi('/checkout', 'POST', {
-        customerName: name,
-        street: street,
-        zoneId: zoneId,
-        isExpress: isExpress
-    });
-
-    if (resp.success && resp.data) {
-        appState.activeOrder = resp.data;
-        toggleCartDrawer(false);
-        refreshCartView();
-        navigateTo('tracker');
-        renderActiveOrderTracking(appState.activeOrder);
-    }
-}
-
-async function lookupOrder() {
-    const input = document.getElementById('trackCodeInput');
-    const code = input ? input.value.trim() : '';
-
-    const resp = await callApi(code ? `/track?code=${encodeURIComponent(code)}` : '/track');
-    if (resp.success && resp.data && resp.data.order) {
-        appState.activeOrder = resp.data.order;
-        renderActiveOrderTracking(appState.activeOrder, resp.data.trackingCodeVerified);
-    }
-}
-
-async function simulateNextStage() {
-    const resp = await callApi('/orders/simulate', 'POST', {
-        orderId: appState.activeOrder ? appState.activeOrder.orderId : null
-    });
-
-    if (resp.success && resp.data) {
-        appState.activeOrder = resp.data;
-        renderActiveOrderTracking(appState.activeOrder, true);
-        showUndoToast(`Order stage advanced: ${resp.data.status}`);
-    }
-}
-
-function renderActiveOrderTracking(order, verified = true) {
-    const container = document.getElementById('trackerDetailsArea');
-    if (!container || !order) return;
-
-    const stages = ["PLACED", "PREPARING", "OUT_FOR_DELIVERY", "DELIVERED"];
-    const currentIndex = stages.indexOf(order.status);
-
-    const statusBadgeClass = order.status === 'PLACED' ? 'badge-placed'
-        : (order.status === 'PREPARING' ? 'badge-prep'
-        : (order.status === 'OUT_FOR_DELIVERY' ? 'badge-transit' : 'badge-delivered'));
-
-    const readableStatus = order.status === 'PLACED' ? 'Order Confirmed'
-        : (order.status === 'PREPARING' ? 'Preparing in Kitchen'
-        : (order.status === 'OUT_FOR_DELIVERY' ? 'On Its Way' : 'Delivered'));
-
-    container.innerHTML = `
-        <div class="order-tracking-card">
-            <div class="tracking-header-row">
-                <div>
-                    <h2 class="tracking-order-num">Order #${order.orderId}</h2>
-                    <div class="tracking-sub-meta">
-                        Tracking Code: <strong style="font-family:var(--font-mono);">${order.trackingCode}</strong>
-                        ${verified ? ' · <span style="color:var(--success); font-weight:600;">Code verified</span>' : ''}
-                    </div>
-                </div>
-                <span class="status-badge-live ${statusBadgeClass}">${readableStatus}</span>
-            </div>
-
-            <!-- Stepper -->
-            <div class="tracker-stepper">
-                <div class="step-node ${currentIndex >= 0 ? (currentIndex > 0 ? 'completed' : 'current') : ''}">
-                    <div class="step-circle">${currentIndex > 0 ? '✓' : '1'}</div>
-                    <span class="step-label">Placed</span>
-                </div>
-                <div class="step-node ${currentIndex >= 1 ? (currentIndex > 1 ? 'completed' : 'current') : ''}">
-                    <div class="step-circle">${currentIndex > 1 ? '✓' : '2'}</div>
-                    <span class="step-label">Kitchen</span>
-                </div>
-                <div class="step-node ${currentIndex >= 2 ? (currentIndex > 2 ? 'completed' : 'current') : ''}">
-                    <div class="step-circle">${currentIndex > 2 ? '✓' : '3'}</div>
-                    <span class="step-label">Courier</span>
-                </div>
-                <div class="step-node ${currentIndex >= 3 ? 'completed' : ''}">
-                    <div class="step-circle">${currentIndex >= 3 ? '✓' : '4'}</div>
-                    <span class="step-label">Arrived</span>
-                </div>
-            </div>
-
-            <!-- Live Status Highlights -->
-            <div class="tracking-info-grid">
-                <div class="info-box">
-                    <span class="info-label">Queue Position</span>
-                    <span class="info-value">
-                        ${order.status === 'PLACED' && order.queuePosition > 0
-                            ? `You are #${order.queuePosition} in line`
-                            : (order.status === 'PREPARING' ? 'Chef is cooking' : (order.status === 'OUT_FOR_DELIVERY' ? 'Out for delivery' : 'Completed'))}
-                    </span>
-                </div>
-                <div class="info-box">
-                    <span class="info-label">Estimated Time</span>
-                    <span class="info-value">${order.estimatedMinutes > 0 ? `${order.estimatedMinutes} minutes` : 'Delivered'}</span>
-                </div>
-                <div class="info-box">
-                    <span class="info-label">Delivery Partner</span>
-                    <span class="info-value">${order.riderName}</span>
-                </div>
-                <div class="info-box">
-                    <span class="info-label">Delivering To</span>
-                    <span class="info-value">${order.address?.street || 'Customer Address'}, Zone ${order.address?.zoneId || 0}</span>
-                </div>
-            </div>
-
-            <!-- Simulation Controls for Demos -->
-            <div class="simulation-bar">
-                <span style="font-size: 13px; color: var(--text-muted);">Demonstration Control</span>
-                <button class="secondary-btn" onclick="simulateNextStage()">Simulate Next Stage ➔</button>
-            </div>
-        </div>
-    `;
-}
-
-// ============================================================================
-// ADMIN DASHBOARD
-// ============================================================================
-
-async function refreshAdminDashboard() {
-    const [matrixRes, ordersRes, ridersRes] = await Promise.all([
-        callApi('/sales-matrix'),
-        callApi('/orders'),
-        callApi('/riders')
-    ]);
-
-    if (matrixRes.success && matrixRes.data) {
-        renderSalesMatrix(matrixRes.data);
-    }
-
-    if (ordersRes.success && ordersRes.data) {
-        renderAdminOrders(ordersRes.data);
-    }
-
-    if (ridersRes.success && ridersRes.data) {
-        renderAdminRiders(ridersRes.data);
-    }
-}
-
-function renderSalesMatrix(matrix) {
-    const metricsContainer = document.getElementById('adminMetricsGrid');
-    if (metricsContainer) {
-        metricsContainer.innerHTML = `
-            <div class="metric-tile">
-                <div class="metric-tile-label">Total Platform Sales</div>
-                <div class="metric-tile-val">₹${matrix.grandTotal.toLocaleString('en-IN', { maximumFractionDigits: 0 })}</div>
-                <div class="metric-tile-sub">Full 7-day revenue</div>
-            </div>
-            <div class="metric-tile">
-                <div class="metric-tile-label">Busiest Day</div>
-                <div class="metric-tile-val">${matrix.days[matrix.busiestDay]}</div>
-                <div class="metric-tile-sub">Peak single slot: ₹${matrix.peakSalesAmount.toFixed(0)}</div>
-            </div>
-            <div class="metric-tile">
-                <div class="metric-tile-label">Active Kitchens</div>
-                <div class="metric-tile-val">${appState.restaurants.length}</div>
-                <div class="metric-tile-sub">Across 5 delivery zones</div>
-            </div>
-        `;
-    }
-
-    const tableContainer = document.getElementById('salesMatrixContainer');
-    if (!tableContainer) return;
-
-    const restNames = appState.restaurants.map(r => r.name);
-
-    let html = `
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>Kitchen Partner</th>
-                    ${matrix.days.map(d => `<th>${d}</th>`).join('')}
-                    <th>Weekly Total</th>
-                </tr>
-            </thead>
-            <tbody>
-    `;
-
-    for (let r = 0; r < matrix.sales.length; ++r) {
-        html += `<tr><td><strong>${restNames[r] || `Kitchen ${r+1}`}</strong></td>`;
-        for (let d = 0; d < 7; ++d) {
-            const isPeak = (r === matrix.busiestRestaurant && d === matrix.busiestDay);
-            html += `<td class="${isPeak ? 'peak-revenue-cell' : ''}">₹${matrix.sales[r][d].toFixed(0)}</td>`;
-        }
-        html += `<td><strong>₹${matrix.restaurantWeeklyTotals[r].toFixed(0)}</strong></td></tr>`;
-    }
-
-    // Daily totals row
-    html += `
-        <tr style="background-color: var(--surface-soft); font-weight: 700;">
-            <td>Daily Total</td>
-            ${matrix.dailyTotals.map(tot => `<td>₹${tot.toFixed(0)}</td>`).join('')}
-            <td>₹${matrix.grandTotal.toFixed(0)}</td>
-        </tr>
-        </tbody></table>
-    `;
-
-    tableContainer.innerHTML = html;
-
-    // Distance Matrix Table
-    const distContainer = document.getElementById('distanceMatrixContainer');
-    if (distContainer) {
-        let distHtml = `
-            <table class="data-table">
-                <thead>
-                    <tr>
-                        <th>Origin / Destination</th>
-                        ${matrix.zones.map(z => `<th>${z}</th>`).join('')}
-                    </tr>
-                </thead>
-                <tbody>
-        `;
-        for (let i = 0; i < matrix.zones.length; ++i) {
-            distHtml += `<tr><td><strong>${matrix.zones[i]}</strong></td>`;
-            for (let j = 0; j < matrix.zones.length; ++j) {
-                distHtml += `<td>${matrix.distanceMatrix[i][j].toFixed(1)} km</td>`;
-            }
-            distHtml += `</tr>`;
-        }
-        distHtml += `</tbody></table>`;
-        distContainer.innerHTML = distHtml;
-    }
-}
-
-function renderAdminOrders(ordersData) {
-    const container = document.getElementById('adminOrdersTableContainer');
-    if (!container) return;
-
-    const orders = ordersData.orders || [];
-    if (orders.length === 0) {
-        container.innerHTML = `<p style="padding: 20px; color: var(--text-muted);">No active orders.</p>`;
-        return;
-    }
-
-    container.innerHTML = `
-        <table class="data-table">
-            <thead>
-                <tr>
-                    <th>Order #</th>
-                    <th>Customer</th>
-                    <th>Kitchen</th>
-                    <th>Type</th>
-                    <th>Amount</th>
-                    <th>Status</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${orders.map(o => `
-                    <tr>
-                        <td><strong>#${o.orderId}</strong></td>
-                        <td>${o.customerName}</td>
-                        <td>${o.restaurantName}</td>
-                        <td>${o.isExpress ? '<span style="color:var(--accent); font-weight:700;">⚡ Express</span>' : 'Standard'}</td>
-                        <td>₹${o.totalAmount.toFixed(2)}</td>
-                        <td><span class="status-badge-live badge-${o.status.toLowerCase().replace(/_/g, '')}">${o.status}</span></td>
-                        <td>
-                            ${o.status === 'PLACED' ? `<button class="btn-add-item" onclick="adminCookOrder(${o.orderId})">Cook</button>` : ''}
-                            ${o.status === 'PREPARING' ? `<button class="btn-add-item" onclick="adminAssignRider(${o.orderId})">Dispatch</button>` : ''}
-                            ${o.status === 'OUT_FOR_DELIVERY' ? `<button class="btn-add-item" onclick="adminCompleteOrder(${o.orderId})">Deliver</button>` : ''}
-                            ${o.status === 'DELIVERED' ? '<span style="color:var(--success); font-size:12px;">Delivered</span>' : ''}
-                        </td>
-                    </tr>
-                `).join('')}
-            </tbody>
-        </table>
-    `;
-}
-
-function renderAdminRiders(riders) {
-    const container = document.getElementById('adminRidersGrid');
-    if (!container) return;
-
-    container.innerHTML = riders.map(r => `
-        <div class="rider-admin-card">
-            <span class="rider-name">${r.name}</span>
-            <span class="rider-detail">🛵 ${r.vehicle} (Speed: ${r.speedMultiplier || 1.25}x)</span>
-            <span class="rider-detail">Zone ${r.currentZone} (${appState.zoneNames[r.currentZone]}) · ${r.totalDeliveries} trips</span>
-            <span style="font-size: 11px; font-weight: 700; color: ${r.isAvailable ? 'var(--success)' : 'var(--accent)'}; margin-top: 4px;">
-                ${r.isAvailable ? '● Available' : `● Delivering Order #${r.activeOrderId}`}
-            </span>
-        </div>
-    `).join('');
-}
-
-function populateRestockDropdown() {
-    const select = document.getElementById('adminRestockSelect');
-    if (!select || !appState.menu || appState.menu.length === 0) return;
-    select.innerHTML = appState.menu.map(d => `
-        <option value="${d.id}">#${d.id} ${d.name} (${d.stock} in stock)</option>
-    `).join('');
-}
-
-async function adminRestockItem() {
-    const select = document.getElementById('adminRestockSelect');
-    const qtyInput = document.getElementById('adminRestockQty');
-    if (!select || !qtyInput) return;
-    const itemId = parseInt(select.value, 10);
-    const quantity = parseInt(qtyInput.value, 10);
-    if (!itemId || !quantity || quantity <= 0) return;
-
-    const resp = await callApi('/restock', 'POST', { itemId, quantity });
-    if (resp.success) {
-        showUndoToast(resp.message);
-        const item = appState.menu.find(m => m.id === itemId);
-        if (item) {
-            item.stock = resp.data.stock;
-            item.availableStock = resp.data.availableStock;
-        }
-        populateRestockDropdown();
-        applyDishesFilter();
-    } else {
-        showUndoToast(resp.message || "Failed to restock");
-    }
-}
-
-// ============================================================================
-// CUSTOMER RATING MODAL (Feature 3)
-// ============================================================================
-
-let currentRatingDishId = null;
-
-function openRatingModal(dishId, dishName) {
-    currentRatingDishId = dishId;
-    const titleEl = document.getElementById('ratingDishName');
-    if (titleEl) titleEl.textContent = `Rate ${dishName}`;
-    document.getElementById('ratingModalOverlay').style.display = 'block';
-    document.getElementById('ratingModal').style.display = 'block';
-}
-
-function closeRatingModal() {
-    currentRatingDishId = null;
-    document.getElementById('ratingModalOverlay').style.display = 'none';
-    document.getElementById('ratingModal').style.display = 'none';
-}
-
-async function submitRating(stars) {
-    if (!currentRatingDishId) return;
-    const resp = await callApi('/rate-dish', 'POST', { dishId: currentRatingDishId, stars });
-    if (resp.success) {
-        const item = appState.menu.find(m => m.id === currentRatingDishId);
-        if (item) {
-            item.rating = resp.data.newRating;
-            item.ratingCount = resp.data.ratingCount;
-        }
-        showUndoToast(`Review saved: ${stars}★ for ${resp.data.name}`);
-        closeRatingModal();
-        applyDishesFilter();
-    } else {
-        showUndoToast(resp.message || "Failed to submit rating");
-    }
-}
-
-async function adminCookOrder(orderId) {
-    await callApi('/orders/cook', 'POST', { orderId });
-    refreshAdminDashboard();
-}
-
-async function adminCookNextOrder() {
-    await callApi('/orders/cook', 'POST', {});
-    refreshAdminDashboard();
-}
-
-async function adminAssignRider(orderId) {
-    await callApi('/orders/assign-rider', 'POST', { orderId });
-    refreshAdminDashboard();
-}
-
-async function adminCompleteOrder(orderId) {
-    await callApi('/orders/complete', 'POST', { orderId });
-    refreshAdminDashboard();
-}
-
-// ============================================================================
-// VIVA EXAMINER MODE (TRIGGERED VIA KEY 'V' OR FOOTER LINK)
-// ============================================================================
-
-function toggleVivaMode(force) {
-    if (typeof force === 'boolean') {
-        appState.vivaActive = force;
-    } else {
-        appState.vivaActive = !appState.vivaActive;
-    }
-
-    const banner = document.getElementById('vivaTopBanner');
-    if (banner) banner.style.display = appState.vivaActive ? 'block' : 'none';
-
-    if (appState.vivaActive) {
-        showUndoToast("Viva Examiner Mode Activated (Press V to toggle)");
-    }
-}
-
-// Global keyboard shortcut: key 'v' or 'V' toggles Viva Mode
-window.addEventListener('keydown', (e) => {
-    // Only toggle if not actively typing in an input
-    if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
-        if (e.key === 'v' || e.key === 'V') {
-            toggleVivaMode();
-        }
-    }
-});
-
-function updateVivaBadge(modules) {
-    const badge = document.getElementById('vivaHandledBadge');
-    if (!badge || !modules || modules.length === 0) return;
-    badge.textContent = `Handled by: ${modules.join(' + ')}`;
-}
-
-function openVivaModal(tab = 'inspector') {
-    const modal = document.getElementById('vivaModalOverlay');
-    if (modal) modal.style.display = 'flex';
-    switchVivaTab(tab);
-    if (tab === 'inspector') loadVivaInspectorData();
-}
-
-function closeVivaModal() {
-    const modal = document.getElementById('vivaModalOverlay');
-    if (modal) modal.style.display = 'none';
-}
-
-function switchVivaTab(tabId) {
-    document.querySelectorAll('.viva-pane').forEach(el => el.classList.remove('active'));
-    document.querySelectorAll('.viva-tab-btn').forEach(el => el.classList.remove('active'));
-
-    const pane = document.getElementById(
-        tabId === 'benchmarks' ? 'vivaPaneBenchmarks' : (tabId === 'map' ? 'vivaPaneMap' : 'vivaPaneInspector')
-    );
-    if (pane) pane.classList.add('active');
-
-    const btn = document.getElementById(`vtab-${tabId}`);
-    if (btn) btn.classList.add('active');
-
-    if (tabId === 'inspector') loadVivaInspectorData();
-}
-
-async function loadVivaInspectorData() {
-    const resp = await callApi('/inspect');
-    if (resp.success && resp.data) {
-        const d = resp.data;
-
-        // Stack View
-        document.getElementById('vivaStackCount').textContent = `Depth: ${d.stackInspector.size}/${d.stackInspector.capacity}`;
-        const stackView = document.getElementById('vivaStackView');
-        if (d.stackInspector.elements.length === 0) {
-            stackView.innerHTML = `<div class="empty-viva">Stack is empty. Add or remove items to see frames.</div>`;
-        } else {
-            stackView.innerHTML = d.stackInspector.elements.map((frame, idx) => `
-                <div class="viva-stack-frame">
-                    <strong>[Top - ${idx}] ${frame.type}</strong> | ${frame.itemName} (ID: ${frame.itemId})
-                    <span style="color:var(--text-subtle);">prev: ${frame.prevQty} ➔ new: ${frame.newQty}</span>
-                </div>
-            `).join('');
-        }
-
-        // Circular Queue View
-        document.getElementById('vivaQueueCount').textContent = `Count: ${d.circularQueueInspector.count}/${d.circularQueueInspector.capacity}`;
-        const queueView = document.getElementById('vivaQueueView');
-        if (d.circularQueueInspector.elements.length === 0) {
-            queueView.innerHTML = `<div class="empty-viva">Queue is empty. Place an order to see buffer slots.</div>`;
-        } else {
-            queueView.innerHTML = d.circularQueueInspector.elements.map((ordId, offset) => `
-                <div class="viva-queue-slot ${offset === 0 ? 'front-slot' : ''}">
-                    ${offset === 0 ? '👉 FRONT' : 'SLOT'}: Order #${ordId}
-                </div>
-            `).join('');
-        }
-
-        // Recently Viewed View
-        document.getElementById('vivaRecentCount').textContent = `${d.recentlyViewedStack.size} items`;
-        const recentView = document.getElementById('vivaRecentView');
-        if (d.recentlyViewedStack.items.length === 0) {
-            recentView.innerHTML = `<div class="empty-viva">No items viewed yet.</div>`;
-        } else {
-            recentView.innerHTML = `
-                <div style="display:flex; gap:6px; flex-wrap:wrap;">
-                    ${d.recentlyViewedStack.items.map(dish => `
-                        <span class="viva-chip">#${dish.id}: ${dish.name}</span>
-                    `).join('')}
-                </div>
-            `;
-        }
-
-        // STL Overview
-        document.getElementById('vivaStlView').innerHTML = `
-            <div>• std::map&lt;string, double&gt; (Coupons Registered): <strong>${d.stlOverview.couponsInMap}</strong></div>
-            <div>• std::set&lt;string&gt; (Unique Cuisines Registered): <strong>${d.stlOverview.cuisinesInSet}</strong></div>
-            <div>• std::vector&lt;std::pair&lt;int, double&gt;&gt; (Promo Pairs): <strong>${d.stlOverview.dailySpecialPairs}</strong></div>
-        `;
-    }
-}
-
-async function runVivaBenchmark() {
-    const area = document.getElementById('vivaBenchmarkOutput');
-    area.innerHTML = `<p style="color:var(--accent);">Executing high-resolution C++ benchmark on 30,000 search elements and 2,500 sort elements...</p>`;
-
-    const resp = await callApi('/benchmark');
-    if (resp.success && resp.data) {
-        const b = resp.data;
-        area.innerHTML = `
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
-                <div class="viva-card">
-                    <h4>Search Benchmark (${b.searchBenchmark.elements.toLocaleString()} items)</h4>
-                    <p style="font-size:24px; font-weight:700; color:var(--success); margin:8px 0;">
-                        ${b.searchBenchmark.speedupFactor.toFixed(1)}x Faster
-                    </p>
-                    <table class="viva-table">
-                        <tr><td>Linear Search O(N)</td><td>${b.searchBenchmark.linearSearch.timeMicroseconds.toFixed(2)} µs</td></tr>
-                        <tr><td>Binary Search O(log N)</td><td>${b.searchBenchmark.binarySearch.timeMicroseconds.toFixed(2)} µs</td></tr>
-                    </table>
-                </div>
-                <div class="viva-card">
-                    <h4>Sort Benchmark (${b.sortBenchmark.elements.toLocaleString()} items)</h4>
-                    <p style="font-size:24px; font-weight:700; color:var(--success); margin:8px 0;">
-                        ${b.sortBenchmark.speedupFactor.toFixed(1)}x Faster
-                    </p>
-                    <table class="viva-table">
-                        <tr><td>Bubble Sort O(N²)</td><td>${b.sortBenchmark.bubbleSort.timeMilliseconds.toFixed(3)} ms</td></tr>
-                        <tr><td>Introsort O(N log N)</td><td>${b.sortBenchmark.introsort.timeMilliseconds.toFixed(3)} ms</td></tr>
-                    </table>
-                </div>
-            </div>
-        `;
-    }
-}
-
-async function runVivaCompareDS() {
-    const area = document.getElementById('vivaBenchmarkOutput');
-    area.innerHTML = `<p style="color:var(--accent);">Executing 50,000 push/pop operations on Hand-crafted Array DS vs STL...</p>`;
-
-    const resp = await callApi('/compare-ds?iters=50000');
-    if (resp.success && resp.data) {
-        const c = resp.data;
-        area.innerHTML = `
-            <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
-                <div class="viva-card">
-                    <h4>Stack Comparison (50,000 operations)</h4>
-                    <table class="viva-table" style="margin-top:10px;">
-                        <tr><th>Type</th><th>Push</th><th>Pop</th></tr>
-                        <tr><td><strong>ArrayStack</strong></td><td>${c.stackComparison.customArrayStackPushMicroseconds.toFixed(2)} µs</td><td>${c.stackComparison.customArrayStackPopMicroseconds.toFixed(2)} µs</td></tr>
-                        <tr><td>std::stack</td><td>${c.stackComparison.stlStackPushMicroseconds.toFixed(2)} µs</td><td>${c.stackComparison.stlStackPopMicroseconds.toFixed(2)} µs</td></tr>
-                    </table>
-                </div>
-                <div class="viva-card">
-                    <h4>Queue Comparison (50,000 operations)</h4>
-                    <table class="viva-table" style="margin-top:10px;">
-                        <tr><th>Type</th><th>Enqueue</th><th>Dequeue</th></tr>
-                        <tr><td><strong>CircularQueue</strong></td><td>${c.queueComparison.customCircularQueueEnqueueMicroseconds.toFixed(2)} µs</td><td>${c.queueComparison.customCircularQueueDequeueMicroseconds.toFixed(2)} µs</td></tr>
-                        <tr><td>std::queue</td><td>${c.queueComparison.stlQueuePushMicroseconds.toFixed(2)} µs</td><td>${c.queueComparison.stlQueuePopMicroseconds.toFixed(2)} µs</td></tr>
-                    </table>
-                </div>
-            </div>
-        `;
+        return { success: false, message: err.message, data: null };
     }
 }
 
 // ============================================================================
 // INITIALIZATION
 // ============================================================================
-
-window.addEventListener('DOMContentLoaded', () => {
-    loadStorefrontData();
-    refreshCartView();
-
-    const hash = window.location.hash.replace('#', '');
-    if (hash === 'admin') navigateTo('admin');
-    else if (hash === 'tracker') navigateTo('tracker');
+document.addEventListener('DOMContentLoaded', async () => {
+    initKeyboardShortcuts();
+    await loadInitialState();
+    handleHashNavigation();
 });
+
+async function loadInitialState() {
+    const res = await apiCall('/api/initial-state');
+    if (res && res.data) {
+        appState.outlets = res.data.outlets || [];
+        appState.tables = res.data.tables || [];
+        appState.staff = res.data.staff || [];
+        appState.activeTableId = res.data.activeTableId || 1;
+        appState.currentOrder = res.data.activeCart || null;
+    }
+
+    // Load full dish catalog
+    const menuRes = await apiCall('/api/menu?outletId=0');
+    if (menuRes && menuRes.data) {
+        appState.dishes = menuRes.data;
+    }
+
+    // Load active kitchen tickets
+    await refreshActiveOrders();
+
+    // Render initial views
+    renderTablesGrid();
+    renderDishesGrid();
+    renderOrderPanel();
+    updateHeaderPill();
+}
+
+// Navigation Handler
+function navigateTo(viewName) {
+    appState.activeView = viewName;
+    window.location.hash = viewName;
+
+    // Update nav links
+    document.querySelectorAll('.header-nav .nav-link').forEach(btn => {
+        btn.classList.remove('active');
+    });
+    const activeNav = document.getElementById(`nav${capitalize(viewName)}`);
+    if (activeNav) activeNav.classList.add('active');
+
+    // Switch views
+    document.querySelectorAll('.app-view').forEach(view => {
+        view.classList.remove('active');
+    });
+    const targetView = document.getElementById(`view${capitalize(viewName)}`);
+    if (targetView) targetView.classList.add('active');
+
+    // Load view data
+    if (viewName === 'kitchen') refreshActiveOrders();
+    else if (viewName === 'bills') loadPastBills();
+    else if (viewName === 'staff') loadStaff();
+    else if (viewName === 'sales') loadSalesAnalytics();
+}
+
+function handleHashNavigation() {
+    const hash = window.location.hash.replace('#', '');
+    if (hash && ['billing', 'kitchen', 'bills', 'staff', 'sales'].includes(hash)) {
+        navigateTo(hash);
+    } else {
+        navigateTo('billing');
+    }
+}
+
+window.addEventListener('hashchange', handleHashNavigation);
+
+function capitalize(s) {
+    return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+// ============================================================================
+// TABLES & BILLING VIEW
+// ============================================================================
+
+function renderTablesGrid() {
+    const container = document.getElementById('tablesGrid');
+    if (!container) return;
+
+    container.innerHTML = appState.tables.map(tbl => {
+        const isSelected = tbl.id === appState.activeTableId;
+        const isOccupied = tbl.status === 'OCCUPIED';
+        const statusClass = isOccupied ? 'status-occupied' : 'status-vacant';
+
+        return `
+            <div class="table-card ${isSelected ? 'selected' : ''} ${isOccupied ? 'occupied' : ''}" onclick="selectTable(${tbl.id})">
+                <div class="table-card-top">
+                    <span class="table-num">T${tbl.id}</span>
+                    <span class="table-status-pill ${statusClass}">${tbl.status}</span>
+                </div>
+                <div class="table-name">${tbl.name}</div>
+                <div class="table-meta">${tbl.capacity} Seats · ${tbl.serverName}</div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function selectTable(tableId) {
+    appState.activeTableId = tableId;
+    renderTablesGrid();
+    updateHeaderPill();
+
+    const res = await apiCall('/api/tables/select', 'POST', { tableId });
+    if (res && res.data) {
+        appState.currentOrder = res.data;
+        renderOrderPanel();
+    }
+}
+
+function updateHeaderPill() {
+    const tbl = appState.tables.find(t => t.id === appState.activeTableId);
+    const pill = document.getElementById('headerActiveTable');
+    if (pill) {
+        pill.textContent = tbl ? tbl.name : `Table ${appState.activeTableId}`;
+    }
+}
+
+// OUTLET TABS FILTER (FIX FOR PRODUCTS NOT SHOWING)
+function selectOutlet(outletId) {
+    appState.selectedOutletId = outletId;
+
+    // Update tab visual states
+    const tabs = document.querySelectorAll('.outlet-tab');
+    tabs.forEach((tab, index) => {
+        if (index === outletId) tab.classList.add('active');
+        else tab.classList.remove('active');
+    });
+
+    // Clear search filter when selecting specific outlet tab for clean list
+    if (appState.searchQuery) {
+        appState.searchQuery = '';
+        const searchInput = document.getElementById('dishSearchInput');
+        if (searchInput) searchInput.value = '';
+        const clearBtn = document.getElementById('searchClearBtn');
+        if (clearBtn) clearBtn.style.display = 'none';
+        const dym = document.getElementById('didYouMeanBar');
+        if (dym) dym.style.display = 'none';
+    }
+
+    renderDishesGrid();
+}
+
+function renderDishesGrid() {
+    const container = document.getElementById('dishesGrid');
+    if (!container) return;
+
+    let list = appState.dishes;
+
+    // Filter by outlet if selected
+    if (appState.selectedOutletId > 0) {
+        list = list.filter(d => (d.outletId === appState.selectedOutletId || d.restaurantId === appState.selectedOutletId));
+    }
+
+    // Filter by search query if non-empty
+    if (appState.searchQuery.trim().length > 0) {
+        const q = appState.searchQuery.toLowerCase();
+        list = list.filter(d => 
+            d.name.toLowerCase().includes(q) || 
+            d.category.toLowerCase().includes(q)
+        );
+    }
+
+    if (list.length === 0) {
+        container.innerHTML = `
+            <div class="empty-dishes-box">
+                <p>No dishes found matching your current filter.</p>
+                <button class="btn-secondary" onclick="selectOutlet(0)">View All Dishes</button>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = list.map(dish => {
+        const isVegBadge = dish.isVeg 
+            ? `<span class="dietary-badge veg">VEG</span>` 
+            : `<span class="dietary-badge non-veg">NON-VEG</span>`;
+        const specialBadge = dish.isChefSpecial ? `<span class="dietary-badge special">CHEF'S SPECIAL</span>` : '';
+
+        return `
+            <div class="dish-card">
+                <div class="dish-card-header">
+                    <div>
+                        <div class="dish-title">${dish.name}</div>
+                        <div class="dish-category">${dish.category} · ★ ${dish.rating.toFixed(1)} (${dish.ratingCount})</div>
+                    </div>
+                    <div class="dish-badge-row">
+                        ${isVegBadge}
+                        ${specialBadge}
+                    </div>
+                </div>
+                <div class="dish-card-footer">
+                    <div class="dish-price">₹${dish.price.toFixed(2)}</div>
+                    <button class="add-dish-btn" onclick="addDishToOrder(${dish.id})">+ Add</button>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+// SEARCH BAR LOGIC WITH LEVENSHTEIN SUGGESTIONS
+let searchDebounceTimer = null;
+function handleSearch(event) {
+    const val = event.target.value;
+    appState.searchQuery = val;
+
+    const clearBtn = document.getElementById('searchClearBtn');
+    if (clearBtn) clearBtn.style.display = val ? 'block' : 'none';
+
+    clearTimeout(searchDebounceTimer);
+    searchDebounceTimer = setTimeout(async () => {
+        if (val.trim().length >= 2) {
+            const res = await apiCall(`/api/search?q=${encodeURIComponent(val)}`);
+            if (res && res.data && res.data.didYouMean) {
+                showDidYouMean(res.data.didYouMean);
+            } else {
+                hideDidYouMean();
+            }
+        } else {
+            hideDidYouMean();
+        }
+        renderDishesGrid();
+    }, 150);
+}
+
+function clearSearch() {
+    appState.searchQuery = '';
+    const input = document.getElementById('dishSearchInput');
+    if (input) input.value = '';
+    const clearBtn = document.getElementById('searchClearBtn');
+    if (clearBtn) clearBtn.style.display = 'none';
+    hideDidYouMean();
+    renderDishesGrid();
+}
+
+function showDidYouMean(term) {
+    const bar = document.getElementById('didYouMeanBar');
+    const chip = document.getElementById('suggestionChip');
+    if (bar && chip) {
+        chip.textContent = term;
+        bar.style.display = 'flex';
+    }
+}
+
+function hideDidYouMean() {
+    const bar = document.getElementById('didYouMeanBar');
+    if (bar) bar.style.display = 'none';
+}
+
+function applySuggestion() {
+    const chip = document.getElementById('suggestionChip');
+    if (chip) {
+        const text = chip.textContent;
+        const input = document.getElementById('dishSearchInput');
+        if (input) input.value = text;
+        appState.searchQuery = text;
+        hideDidYouMean();
+        renderDishesGrid();
+    }
+}
+
+// ============================================================================
+// ORDER ACTIONS (ARRAYSTACK LIFO UNDO)
+// ============================================================================
+
+async function addDishToOrder(itemId) {
+    const res = await apiCall('/api/cart/add', 'POST', {
+        itemId,
+        quantity: 1,
+        tableId: appState.activeTableId
+    });
+    if (res && res.success) {
+        appState.currentOrder = res.data;
+        renderOrderPanel();
+    }
+}
+
+async function removeDishFromOrder(itemId) {
+    const res = await apiCall('/api/cart/remove', 'POST', {
+        itemId,
+        tableId: appState.activeTableId
+    });
+    if (res && res.success) {
+        appState.currentOrder = res.data;
+        renderOrderPanel();
+    }
+}
+
+async function undoOrderAction() {
+    const res = await apiCall('/api/cart/undo', 'POST', {
+        tableId: appState.activeTableId
+    });
+    if (res && res.success) {
+        appState.currentOrder = res.data;
+        renderOrderPanel();
+    }
+}
+
+async function clearDraftOrder() {
+    const res = await apiCall('/api/cart/clear', 'POST', {
+        tableId: appState.activeTableId
+    });
+    if (res && res.success) {
+        appState.currentOrder = res.data;
+        renderOrderPanel();
+    }
+}
+
+async function applyCoupon() {
+    const input = document.getElementById('orderCouponInput');
+    const code = input ? input.value.trim().toUpperCase() : '';
+    if (!code) return;
+
+    const res = await apiCall('/api/coupon', 'POST', {
+        code,
+        tableId: appState.activeTableId
+    });
+
+    const statusEl = document.getElementById('couponStatusText');
+    if (statusEl) {
+        if (res && res.success) {
+            statusEl.textContent = `Applied: ${code} (${res.data.discountPercent}% off)`;
+            statusEl.className = 'coupon-status-text success';
+            appState.currentOrder = res.data;
+            renderOrderPanel();
+        } else {
+            statusEl.textContent = 'Invalid coupon code';
+            statusEl.className = 'coupon-status-text error';
+        }
+    }
+}
+
+function renderOrderPanel() {
+    const tbl = appState.tables.find(t => t.id === appState.activeTableId);
+    const titleEl = document.getElementById('orderPanelTableName');
+    const subEl = document.getElementById('orderPanelTableSub');
+    if (titleEl && tbl) titleEl.textContent = tbl.name;
+    if (subEl && tbl) subEl.textContent = `${tbl.section} · Server: ${tbl.serverName}`;
+
+    const order = appState.currentOrder;
+    const itemsContainer = document.getElementById('orderItemsList');
+
+    if (!order || !order.items || order.items.length === 0) {
+        if (itemsContainer) {
+            itemsContainer.innerHTML = `
+                <div class="empty-order-state">
+                    <p>No dishes added for this table yet.</p>
+                    <p class="empty-tip">Select dishes from the catalog on the left to punch an order.</p>
+                </div>
+            `;
+        }
+        updateFinancialSummary(0, 0, 0, 0, 0);
+        return;
+    }
+
+    // Render line items
+    itemsContainer.innerHTML = order.items.map(item => `
+        <div class="order-line-item">
+            <div class="line-item-left">
+                <span class="line-item-name">${item.name}</span>
+                <span class="line-item-sub">₹${item.price.toFixed(2)} each</span>
+            </div>
+            <div class="line-item-right">
+                <div class="qty-pill">
+                    <button class="qty-btn" onclick="changeQty(${item.itemId}, -1)">−</button>
+                    <span class="qty-num">${item.quantity}</span>
+                    <button class="qty-btn" onclick="changeQty(${item.itemId}, 1)">+</button>
+                </div>
+                <span class="line-item-total">₹${(item.price * item.quantity).toFixed(2)}</span>
+                <button class="line-remove-btn" onclick="removeDishFromOrder(${item.itemId})">✕</button>
+            </div>
+        </div>
+    `).join('');
+
+    updateFinancialSummary(
+        order.subtotal || 0,
+        order.discountAmount || 0,
+        order.gstTax || 0,
+        order.serviceCharge || 0,
+        order.netTotal || 0
+    );
+}
+
+async function changeQty(itemId, delta) {
+    if (delta > 0) {
+        await addDishToOrder(itemId);
+    } else {
+        // Decrease quantity or remove
+        const item = appState.currentOrder?.items?.find(i => i.itemId === itemId);
+        if (item && item.quantity <= 1) {
+            await removeDishFromOrder(itemId);
+        } else {
+            // Revert by adding -1 or using remove
+            await apiCall('/api/cart/add', 'POST', {
+                itemId,
+                quantity: -1,
+                tableId: appState.activeTableId
+            });
+            const res = await apiCall(`/api/cart?tableId=${appState.activeTableId}`);
+            if (res && res.data) {
+                appState.currentOrder = res.data;
+                renderOrderPanel();
+            }
+        }
+    }
+}
+
+function updateFinancialSummary(subtotal, discount, gst, serviceCharge, total) {
+    document.getElementById('summarySubtotal').textContent = `₹${subtotal.toFixed(2)}`;
+    const discRow = document.getElementById('summaryDiscountRow');
+    if (discRow) {
+        discRow.style.display = discount > 0 ? 'flex' : 'none';
+        document.getElementById('summaryDiscount').textContent = `-₹${discount.toFixed(2)}`;
+    }
+    document.getElementById('summaryGst').textContent = `₹${gst.toFixed(2)}`;
+    document.getElementById('summaryServiceCharge').textContent = `₹${serviceCharge.toFixed(2)}`;
+    document.getElementById('summaryTotal').textContent = `₹${total.toFixed(2)}`;
+}
+
+// SUBMIT KOT (DISPATCH TO KITCHEN QUEUE)
+async function submitKOTOrder() {
+    const guestInput = document.getElementById('orderGuestInput');
+    const guestName = guestInput ? guestInput.value.trim() : 'Guest';
+    const expressCheck = document.getElementById('orderExpressCheckbox');
+    const isExpress = expressCheck ? expressCheck.checked : false;
+
+    const res = await apiCall('/api/kot/submit', 'POST', {
+        guestName,
+        isExpress,
+        tableId: appState.activeTableId
+    });
+
+    if (res && res.success) {
+        alert(`KOT Dispatched: Order #${res.data.orderId} sent to Kitchen Circular Queue!`);
+        // Refresh tables and orders
+        await loadInitialState();
+    } else {
+        alert(res?.message || 'Failed to submit KOT');
+    }
+}
+
+// SETTLE & PRINT BILL
+async function settleAndGenerateBill() {
+    const res = await apiCall('/api/bill/generate', 'POST', {
+        tableId: appState.activeTableId,
+        paymentMethod: 'UPI'
+    });
+
+    if (res && res.success) {
+        showReceiptModal(res.data.asciiPrintText);
+        await loadInitialState();
+    } else {
+        alert(res?.message || 'Could not settle bill for this table (ensure table has an active order)');
+    }
+}
+
+// ============================================================================
+// LIVE KITCHEN KOT BOARD (CONCURRENT TICKETS)
+// ============================================================================
+
+async function refreshActiveOrders() {
+    const res = await apiCall('/api/orders/active');
+    if (res && res.data) {
+        appState.activeOrders = res.data;
+        renderKitchenBoard();
+        const badge = document.getElementById('headerKotCount');
+        if (badge) badge.textContent = appState.activeOrders.length;
+    }
+}
+
+function renderKitchenBoard() {
+    const container = document.getElementById('kotBoardGrid');
+    if (!container) return;
+
+    if (appState.activeOrders.length === 0) {
+        container.innerHTML = `
+            <div class="empty-state-card">
+                <p>All kitchen orders have been prepared and served.</p>
+                <p class="empty-tip">Punch a new KOT from Tables & Billing to see it appear here.</p>
+            </div>
+        `;
+        return;
+    }
+
+    container.innerHTML = appState.activeOrders.map(kot => {
+        const isExpress = kot.isExpress ? `<span class="kot-express-badge">EXPRESS VIP</span>` : '';
+        const stage = kot.status;
+
+        return `
+            <div class="kot-card ${kot.isExpress ? 'express' : ''}">
+                <div class="kot-header">
+                    <div>
+                        <div class="kot-title">KOT #${kot.orderId} · ${kot.tableName}</div>
+                        <div class="kot-meta">${kot.section} · Server: ${kot.serverName} · ${kot.orderTime}</div>
+                    </div>
+                    ${isExpress}
+                </div>
+
+                <div class="kot-items-list">
+                    ${kot.items.map(it => `
+                        <div class="kot-item-line">
+                            <span class="kot-item-qty">${it.quantity}x</span>
+                            <span class="kot-item-name">${it.name}</span>
+                        </div>
+                    `).join('')}
+                </div>
+
+                <div class="kot-footer">
+                    <span class="kot-stage-pill stage-${stage.toLowerCase()}">${stage}</span>
+                    <div class="kot-actions">
+                        ${stage === 'ORDERED' ? `<button class="btn-stage" onclick="advanceKotStage(${kot.orderId}, 'PREPARING')">Start Prep →</button>` : ''}
+                        ${stage === 'PREPARING' ? `<button class="btn-stage success" onclick="advanceKotStage(${kot.orderId}, 'SERVED')">Mark Served ✓</button>` : ''}
+                        ${stage === 'SERVED' ? `<span class="served-text">Ready for billing</span>` : ''}
+                    </div>
+                </div>
+            </div>
+        `;
+    }).join('');
+}
+
+async function advanceKotStage(orderId, stage) {
+    const res = await apiCall('/api/orders/stage', 'POST', { orderId, stage });
+    if (res && res.success) {
+        await refreshActiveOrders();
+    }
+}
+
+// ============================================================================
+// PAST BILLS & RECEIPTS ARCHIVE
+// ============================================================================
+
+async function loadPastBills() {
+    const res = await apiCall('/api/bills');
+    if (res && res.data) {
+        appState.pastBills = res.data;
+        renderPastBills();
+    }
+}
+
+function renderPastBills() {
+    const tbody = document.getElementById('pastBillsTableBody');
+    if (!tbody) return;
+
+    if (appState.pastBills.length === 0) {
+        tbody.innerHTML = `<tr><td colspan="9" style="text-align:center; padding: 32px;">No settled bills archived yet.</td></tr>`;
+        return;
+    }
+
+    tbody.innerHTML = appState.pastBills.map(b => `
+        <tr>
+            <td><strong>#${b.billId}</strong></td>
+            <td><code class="invoice-code">${b.invoiceCode}</code></td>
+            <td>${b.tableName}</td>
+            <td>${b.guestName}</td>
+            <td>${b.serverName}</td>
+            <td>${b.itemCount} items</td>
+            <td><span class="payment-pill">${b.paymentMethod}</span></td>
+            <td><strong>₹${b.netTotal.toFixed(2)}</strong></td>
+            <td>
+                <button class="btn-print-sm" onclick="printBillReceipt(${b.billId})">Print Receipt</button>
+            </td>
+        </tr>
+    `).join('');
+}
+
+async function printBillReceipt(billId) {
+    const res = await apiCall(`/api/bill/print?billId=${billId}`);
+    if (res && res.data && res.data.asciiReceipt) {
+        showReceiptModal(res.data.asciiReceipt);
+    }
+}
+
+// THERMAL RECEIPT MODAL
+function showReceiptModal(asciiText) {
+    const modal = document.getElementById('receiptModal');
+    const content = document.getElementById('thermalReceiptContent');
+    if (modal && content) {
+        content.textContent = asciiText;
+        modal.style.display = 'flex';
+    }
+}
+
+function closeReceiptModal() {
+    const modal = document.getElementById('receiptModal');
+    if (modal) modal.style.display = 'none';
+}
+
+function printReceiptToWindow() {
+    window.print();
+}
+
+// ============================================================================
+// STAFF ATTENDANCE REGISTER
+// ============================================================================
+
+async function loadStaff() {
+    const res = await apiCall('/api/staff');
+    if (res && res.data) {
+        appState.staff = res.data;
+        renderStaffGrid();
+    }
+}
+
+function renderStaffGrid() {
+    const container = document.getElementById('staffGrid');
+    if (!container) return;
+
+    container.innerHTML = appState.staff.map(s => `
+        <div class="staff-card ${s.isPresent ? 'present' : 'absent'}">
+            <div class="staff-top">
+                <div>
+                    <div class="staff-name">${s.name}</div>
+                    <div class="staff-role">${s.role}</div>
+                </div>
+                <span class="staff-status-badge ${s.isPresent ? 'on-duty' : 'off-duty'}">
+                    ${s.isPresent ? 'ON DUTY' : 'OFF DUTY'}
+                </span>
+            </div>
+            <div class="staff-meta">
+                <div>Shift: <strong>${s.shift}</strong></div>
+                <div>Hours Clocked: <strong>${s.hoursWorked.toFixed(1)} hrs</strong></div>
+                <div>Contact: <strong>${s.phone}</strong></div>
+            </div>
+            <div class="staff-toggle-row">
+                <button class="btn-toggle ${s.isPresent ? 'btn-danger' : 'btn-success'}" onclick="toggleStaffAttendance(${s.id}, ${!s.isPresent})">
+                    ${s.isPresent ? 'Clock Out' : 'Clock In (Present)'}
+                </button>
+            </div>
+        </div>
+    `).join('');
+}
+
+async function toggleStaffAttendance(staffId, isPresent) {
+    const res = await apiCall('/api/staff/attendance', 'POST', {
+        staffId,
+        isPresent,
+        hoursWorked: isPresent ? 8.0 : 0.0
+    });
+    if (res && res.success) {
+        await loadStaff();
+    }
+}
+
+// ============================================================================
+// SALES ANALYTICS & MATRIX
+// ============================================================================
+
+async function loadSalesAnalytics() {
+    const res = await apiCall('/api/sales-matrix');
+    if (res && res.data) {
+        appState.salesMatrixData = res.data;
+        renderSalesAnalytics();
+    }
+}
+
+function renderSalesAnalytics() {
+    const d = appState.salesMatrixData;
+    if (!d) return;
+
+    // KPIs
+    document.getElementById('kpiGrandTotal').textContent = `₹${d.grandTotal.toLocaleString('en-IN')}`;
+    document.getElementById('kpiPeakAmount').textContent = `₹${d.peakSalesAmount.toLocaleString('en-IN')}`;
+    const busiestOutletName = appState.outlets[d.busiestOutlet]?.name || `Outlet ${d.busiestOutlet + 1}`;
+    const busiestDayName = d.days[d.busiestDay] || 'Saturday';
+    document.getElementById('kpiPeakSlot').textContent = `${busiestOutletName} on ${busiestDayName}`;
+    document.getElementById('kpiAvgDaily').textContent = `₹${Math.round(d.grandTotal / 7).toLocaleString('en-IN')}`;
+
+    // 2D Matrix Table
+    const table = document.getElementById('salesMatrixTable');
+    if (!table) return;
+
+    let html = `
+        <thead>
+            <tr>
+                <th>Kitchen Outlet</th>
+                ${d.days.map(day => `<th>${day}</th>`).join('')}
+                <th>Weekly Total</th>
+            </tr>
+        </thead>
+        <tbody>
+    `;
+
+    for (let r = 0; r < d.sales.length; ++r) {
+        const outletName = appState.outlets[r]?.name || `Outlet ${r + 1}`;
+        html += `
+            <tr>
+                <td><strong>${outletName}</strong></td>
+                ${d.sales[r].map((amt, c) => {
+                    const isPeak = (r === d.busiestOutlet && c === d.busiestDay);
+                    return `<td class="${isPeak ? 'peak-cell' : ''}">₹${amt.toLocaleString('en-IN')}</td>`;
+                }).join('')}
+                <td><strong>₹${d.outletWeeklyTotals[r].toLocaleString('en-IN')}</strong></td>
+            </tr>
+        `;
+    }
+
+    // Daily totals row
+    html += `
+        <tr class="daily-totals-row">
+            <td><strong>Daily Platform Total</strong></td>
+            ${d.dailyTotals.map(tot => `<td><strong>₹${tot.toLocaleString('en-IN')}</strong></td>`).join('')}
+            <td><strong class="grand-total-val">₹${d.grandTotal.toLocaleString('en-IN')}</strong></td>
+        </tr>
+        </tbody>
+    `;
+
+    table.innerHTML = html;
+}
+
+// ============================================================================
+// EXAMINER / VIVA MODE (KEY: 'V')
+// ============================================================================
+
+function initKeyboardShortcuts() {
+    window.addEventListener('keydown', (e) => {
+        if (e.key === 'v' || e.key === 'V') {
+            if (e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
+                toggleVivaMode(!appState.vivaMode);
+            }
+        }
+    });
+}
+
+function toggleVivaMode(enable) {
+    appState.vivaMode = enable;
+    const banner = document.getElementById('vivaTopBanner');
+    if (banner) {
+        banner.style.display = enable ? 'block' : 'none';
+    }
+}
+
+function updateVivaBanner(moduleTag) {
+    const badge = document.getElementById('vivaHandledBadge');
+    if (badge) {
+        badge.textContent = `Handled by: ${moduleTag}`;
+    }
+}
+
+async function openVivaModal(type) {
+    const modal = document.getElementById('vivaModal');
+    const title = document.getElementById('vivaModalTitle');
+    const body = document.getElementById('vivaModalBody');
+    if (!modal || !title || !body) return;
+
+    modal.style.display = 'flex';
+
+    if (type === 'inspector') {
+        title.textContent = 'Engine Memory & Buffer Inspector (ArrayStack & CircularQueue)';
+        const res = await apiCall('/api/inspect');
+        body.innerHTML = `
+            <div class="viva-inspector-content">
+                <p><strong>Module VIII: Custom ArrayStack</strong></p>
+                <pre class="json-code">${JSON.stringify(res.data?.undoStack, null, 2)}</pre>
+                <p><strong>Module IX: Custom CircularQueue</strong></p>
+                <pre class="json-code">${JSON.stringify(res.data?.kitchenQueue, null, 2)}</pre>
+                <p><strong>Module III: 1D Array Statistics</strong></p>
+                <pre class="json-code">${JSON.stringify(res.data?.arrayStats, null, 2)}</pre>
+            </div>
+        `;
+    } else if (type === 'benchmarks') {
+        title.textContent = 'Module VII: Timed Stopwatch Empirical Benchmarks';
+        const res = await apiCall('/api/benchmark');
+        body.innerHTML = `
+            <div class="viva-bench-content">
+                <p>Empirical Stopwatch Measurements on real CPU cycles:</p>
+                <pre class="json-code">${JSON.stringify(res.data, null, 2)}</pre>
+            </div>
+        `;
+    } else if (type === 'compare') {
+        title.textContent = 'Module VIII/IX/X: Custom Array Structures vs STL Live Benchmark';
+        const res = await apiCall('/api/compare-ds');
+        body.innerHTML = `
+            <div class="viva-compare-content">
+                <p>50,000 Push/Pop and Enqueue/Dequeue operations comparison:</p>
+                <pre class="json-code">${JSON.stringify(res.data, null, 2)}</pre>
+            </div>
+        `;
+    } else if (type === 'map') {
+        title.textContent = 'CS Syllabus Modules I-X Implementation Mapping';
+        body.innerHTML = `
+            <div class="viva-map-content">
+                <table class="data-table">
+                    <thead>
+                        <tr><th>Module</th><th>Topic</th><th>Real POS Feature</th><th>Time Complexity</th></tr>
+                    </thead>
+                    <tbody>
+                        <tr><td>Module I</td><td>Basics & Financial Types</td><td>GST & Service Charge Invoicing</td><td>O(1)</td></tr>
+                        <tr><td>Module II</td><td>Functions & Control Flow</td><td>Command Dispatcher & Overloading</td><td>O(1)</td></tr>
+                        <tr><td>Module III</td><td>1D Arrays</td><td>Prices, Stock, Ratings, Staff Roster</td><td>O(N)</td></tr>
+                        <tr><td>Module IV</td><td>2D Arrays</td><td>6x7 Weekly Sales Matrix & Seating</td><td>O(R * D)</td></tr>
+                        <tr><td>Module V</td><td>Strings & Levenshtein</td><td>Dish Search & Check-Digit Invoices</td><td>O(L1 * L2)</td></tr>
+                        <tr><td>Module VI</td><td>Structures & Nested</td><td>Table, StaffMember, OrderTicket, Bill</td><td>O(1)</td></tr>
+                        <tr><td>Module VII</td><td>Empirical Benchmarks</td><td>Linear vs Binary, Bubble vs Introsort</td><td>O(log N) vs O(N)</td></tr>
+                        <tr><td>Module VIII</td><td>Stack (Array-based)</td><td>LIFO Table Order Action Undo Stack</td><td>O(1)</td></tr>
+                        <tr><td>Module IX</td><td>Queue (Circular)</td><td>Multi-Ticket FIFO Kitchen KOT Queue</td><td>O(1)</td></tr>
+                        <tr><td>Module X</td><td>STL Containers</td><td>std::deque Bills, std::map Coupons</td><td>O(log K)</td></tr>
+                    </tbody>
+                </table>
+            </div>
+        `;
+    }
+}
+
+function closeVivaModal() {
+    const modal = document.getElementById('vivaModal');
+    if (modal) modal.style.display = 'none';
+}

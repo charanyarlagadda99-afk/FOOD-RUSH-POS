@@ -1,69 +1,75 @@
-# FoodRush - Complete Module & Syllabus Map
+# FoodRush POS - Complete Module & Syllabus Map
 
-This document maps all 10 Computer Science syllabus modules to their exact code locations, functions, real features, and step-by-step instructions for demonstrating them to professors during viva voce exams.
+This document maps all 10 Computer Science syllabus modules and the 3 Enterprise POS Subsystems to their exact code locations, functions, real POS features, and step-by-step viva voce examination talking points.
 
 ---
 
 ## Complete Module Mapping Table
 
-| Module | Topic | File & Function | Real Feature in FoodRush | How to Demo in Viva Mode |
+| Module | Topic | File & Function | Real Feature in FoodRush POS | How to Demo in Viva Mode |
 | :--- | :--- | :--- | :--- | :--- |
-| **Module I** | Basics: I/O, Constants, Data Types, Operators, Type Conversion | `src/models.hpp`<br>`src/main.cpp:calculateCartTotals()` | Bill computation, tax calculation (8.25%), bitwise dietary flags (Spicy=1, GlutenFree=2, ChefSpecial=4), distance multipliers, `static_cast` | Add items to cart. Observe subtotal, tax breakdown, and express surcharge. Notice bitwise tags (SPICY, GLUTEN FREE, CHEF SPECIAL) on dish cards. |
-| **Module II** | Control Statements & Functions | `src/main.cpp:handleCommand()`<br>`src/main.cpp:formatCurrency()` | Command dispatcher switch/if-else ladder, while/for loops, function overloading (`formatCurrency(double)` vs `formatCurrency(int)`), pass-by-reference guards | Run any command in Web or CLI menu. Notice the command dispatcher resolving commands and formatting currency in ₹. |
-| **Module III** | 1D Arrays: Declare, Initialize, Pass to Functions, Sum, Min, Max, Search, Bubble Sort | `src/algorithms.hpp:calculateArraySum()`<br>`findArrayMax()`, `findArrayMin()`<br>`linearSearchArray()`, `bubbleSortArray()` | Ratings analysis, stock management, cheapest/priciest dish extraction, and Bubble Sorting of dish prices across 48 items | Open Viva Mode (`V`) ➔ View Performance Benchmarks. Observe 1D array operations and price-sorted menu samples. |
-| **Module IV** | 2D Arrays: Matrix Operations, Row Sums, Column Sums, Symmetric Lookups | `src/sales_matrix.hpp:SalesMatrixManager`<br>`ZONE_DISTANCE_MATRIX[5][5]`<br>`sales[6][7]` | 6×7 restaurant sales matrix (row sums = restaurant weekly revenue, column sums = daily platform revenue), 5×5 zone distance matrix for delivery fees | Open Admin View (`#admin`). View the 6×7 revenue grid with row/col sums and peak sales slot. In Cart, switch delivery zones to see $O(1)$ matrix distance fee recalculate. |
-| **Module V** | Strings: Levenshtein Distance, Substring Matching, Tokenizing, Reversal Check Digit | `src/algorithms.hpp:levenshteinDistance()`<br>`generateTrackingCode()`, `verifyTrackingCheckDigit()`<br>`toLowerString()`, `reverseString()` | Fuzzy search "Did you mean?" suggestions (Levenshtein), tamper-proof tracking codes (`TRK-1001-8`) via string reversal weighted check digit, palindrome coupon check | Type a typo like `biryani` or `piza` in the search bar to see the "Did you mean?" suggestion chip. Place an order to see the check-digit tracking code. In Cart, enter coupon `LEVEL` or `RACECAR`. |
-| **Module VI** | Structures: Declarations, Arrays of Structs, Nested Structs, Struct Methods | `src/models.hpp:Address`<br>`MenuItem`, `Restaurant`<br>`CartItem`, `Order`, `Rider` | Domain entities: `Order` contains nested `Address` and array of `CartItem`. JSON serialization methods on structs. | Browse restaurants and dishes. Checkout to generate a full nested `Order` record with delivery address and line items. |
-| **Module VII** | Performance: Asymptotic Complexity, Timed Stopwatch Benchmarks | `src/algorithms.hpp:PerformanceBenchmark`<br>`runFullBenchmark()` | Microsecond stopwatch comparison: Linear Search $O(N)$ vs Binary Search $O(\log N)$ on 30,000 items; Bubble Sort $O(N^2)$ vs Introsort $O(N \log N)$ | Press `V` to open Viva Mode. Click **Run Benchmarks**. Show measured microsecond execution times and 300x+ speedup multipliers. |
-| **Module VIII** | Stack: Array-based Implementation, Push, Pop, Peek, LIFO Applications | `src/array_stack.hpp:ArrayStack`<br>`src/main.cpp:addToCartInternal()`<br>`src/main.cpp:performCartUndo()` | **Cart Action Undo Stack**: Every add/remove is pushed onto a hand-crafted array stack. Clicking **Undo** pops and reverses the action. **Recently Viewed Dishes Stack**. | Add dishes to the cart. Click **Undo** to pop the last action. Open Viva Mode (`V`) to view the live **Stack Frames** inspector showing `topIndex` and stored actions. |
-| **Module IX** | Queue: Array-based Circular Queue, Front/Rear Pointers, Priority Queue | `src/array_queue.hpp:CircularQueue`<br>`PriorityOrderQueue`<br>`src/main.cpp:gKitchenQueue` | **Kitchen FIFO Order Queue**: Circular buffer with modulo arithmetic. **Express Priority Queue**: Express orders jump ahead. **Rider Rotation Queue**: Dequeues and assigns available riders. | Place an order and track it. Click "Simulate Next Stage" to see it move through the kitchen circular queue. In Viva Mode (`V`), inspect front/rear ring buffer indices. |
-| **Module X** | STL: pair, vector, iterators, deque, stack, queue, set, map | `src/algorithms.hpp:STLManager`<br>`std::map` (coupons), `std::set` (cuisines)<br>`std::vector` (catalog), `std::deque` (orders)<br>`std::pair` (promos) | Coupon dictionary lookup, unique cuisine registry, completed order tracking, and live comparison of Hand-crafted vs STL structures | In Viva Mode (`V`), click **Compare Hand-Crafted vs STL** to view side-by-side push/pop and allocation benchmarks across 50,000 operations. |
-| **Feature 1** | Smart Fleet Dispatch & Zone Routing *(Member 4)* | `src/algorithms.hpp:findNearestAvailableRider()`<br>`src/main.cpp:dispatchNearestRider()` | Greedy spatial distance minimization using 5×5 distance matrix, vehicle speed multipliers ($1.00\times$ to $1.35\times$), and dynamic transit ETA calculation | Open Admin tab (`#admin`). View Delivery Fleet Availability with live speed multipliers, zones, and assigned orders. |
-| **Feature 2** | Real-Time Inventory Lock & Reservation *(Member 5)* | `src/main.cpp:addToCartInternal()`<br>`src/main.cpp:performCartUndo()`<br>`src/main.cpp:RESTOCK_ITEM` | Two-phase stock reservation (`reservedStock`), preventing double-ordering; atomic restock command for catalog replenish | Add items to cart $\rightarrow$ observe available stock decremented in place. Undo cart $\rightarrow$ stock reserved released. In Admin, restock any dish. |
-| **Feature 3** | Customer Rating Feedback & Top-K Leaderboard *(Member 5)* | `src/algorithms.hpp:getTopKDishes()`<br>`src/main.cpp:RATE_DISH` | Live running average customer rating recalculation; $O(N \log K)$ Top-K dish leaderboard ranking | Click dish rating pill (e.g. `★ 4.9`) $\rightarrow$ rate 5★. Click **★ Top Rated** filter $\rightarrow$ observe Top-K ranked dishes. |
+| **Module I** | Basics: I/O, Constants, Data Types, Operators, Type Conversion | `src/models.hpp`<br>`src/main.cpp:calculateTableBillTotals()` | 5% GST & 5% Service Charge calculation, Express KOT surcharge (+₹50), bitwise dietary flags (`Spicy=1`, `GlutenFree=2`, `ChefSpecial=4`), `static_cast` paise to rupees conversion | Add dishes to a table order. Observe subtotal, 5% GST, 5% Service Charge, and net total. Notice bitwise badges (VEG, NON-VEG, CHEF SPECIAL) on dish cards. |
+| **Module II** | Control Statements & Functions | `src/main.cpp:handleCommand()`<br>`src/main.cpp:formatCurrency()` | Command dispatcher switch/if-else ladder, while/for loops, function overloading (`formatCurrency(double)` vs `formatCurrency(int)`), pass-by-reference guards | Select tables and punch orders. Observe the C++ engine resolving commands and formatting currency in ₹. |
+| **Module III** | 1D Arrays: Declare, Initialize, Pass to Functions, Sum, Min, Max, Search, Bubble Sort | `src/algorithms.hpp:calculateArraySum()`<br>`findArrayMax()`, `findArrayMin()`<br>`linearSearchArray()`, `bubbleSortArray()`<br>`src/main.cpp:gStaff` | Staff Attendance Roster (8 members), dish price arrays, cheapest/priciest dish extraction, and Bubble Sorting of dish prices across 48 items | Open Staff View (`#staff`). Toggle clock-in/out for staff members. In Viva Mode (`V`), view 1D array price statistics (min, max, average). |
+| **Module IV** | 2D Arrays: Matrix Operations, Row Sums, Column Sums, Peak Slot Search | `src/sales_matrix.hpp:SalesMatrixManager`<br>`sales[6][7]`<br>`TABLE_CAPACITY_MATRIX[4][3]` | 6 Outlets × 7 Days weekly sales revenue matrix (row sums = outlet weekly revenue, column sums = daily platform revenue), 4×3 dining sections seating matrix | Open Sales Analytics (`#sales`). View the 6×7 revenue matrix with row/col sums and peak sales slot. |
+| **Module V** | Strings: Levenshtein Distance, Substring Matching, Tokenizing, Reversal Check Digit | `src/algorithms.hpp:calculateLevenshteinDistance()`<br>`generateInvoiceCode()`, `validateInvoiceCode()`<br>`toLowerString()`, `reverseString()` | Fuzzy search "Did you mean?" suggestions (Levenshtein), verified tax invoices (`INV-5001-1`) via string reversal check-digit algorithm, coupon parsing | Type a typo like `biryani` or `piza` in the search bar to see the "Did you mean" suggestion chip. Settle a bill to see the check-digit verified invoice code. |
+| **Module VI** | Structures: Declarations, Arrays of Structs, Nested Structs, Struct Methods | `src/models.hpp:Table`<br>`StaffMember`, `MenuItem`<br>`OrderTicket`, `BillReceipt` | Domain entities: `Table` with occupancy status, `OrderTicket` with nested line items, `BillReceipt` with financial totals and invoice codes. | Switch tables, punch KOT orders, settle bills, and view staff roster. Inspect structured JSON output. |
+| **Module VII** | Performance: Asymptotic Complexity, Timed Stopwatch Benchmarks | `src/algorithms.hpp:PerformanceBenchmark`<br>`runFullBenchmark()` | Microsecond stopwatch comparison: Linear Search $O(N)$ vs Binary Search $O(\log N)$ on 30,000 items; Bubble Sort $O(N^2)$ vs Introsort $O(N \log N)$ on 2,500 elements | Press `V` to open Viva Mode. Click **Benchmarks**. Show measured microsecond execution times and 100x+ speedup multipliers. |
+| **Module VIII** | Stack: Array-based Implementation, Push, Pop, Peek, LIFO Applications | `src/array_stack.hpp:ArrayStack`<br>`src/main.cpp:addToTableOrderInternal()`<br>`src/main.cpp:undoLastTableOrderAction()` | **Table Order Action Undo Stack**: Every add/remove is pushed onto a hand-crafted array stack. Clicking **Undo** pops and reverses the action. **Recently Viewed Dishes Stack**. | Add dishes to a table order. Click **Undo** to pop the last action. In Viva Mode (`V`), inspect the live **Memory Inspector** showing stack capacity and stored frames. |
+| **Module IX** | Queue: Array-based Circular Queue, Front/Rear Pointers, Priority Queue | `src/array_queue.hpp:CircularQueue`<br>`PriorityOrderQueue`<br>`src/main.cpp:gKitchenQueue` | **Kitchen FIFO Order Queue**: Circular buffer with modulo arithmetic. **Priority Order Queue**: Express KOT VIP orders jump ahead of standard tickets. | Open Kitchen KOT Board (`#kitchen`). View concurrent active tickets. Advance stages (`ORDERED` ➔ `PREPARING` ➔ `SERVED`). In Viva Mode (`V`), inspect circular queue ring buffer indices. |
+| **Module X** | STL: pair, vector, iterators, deque, stack, queue, set, map | `src/algorithms.hpp:STLManager`<br>`std::map` (coupons), `std::set` (cuisines)<br>`std::vector` (catalog), `std::deque` (past bills)<br>`std::pair` (promos) | Coupon dictionary lookup, unique cuisine registry, completed past bills archive (double-ended queue), and live comparison of Hand-crafted vs STL structures | In Viva Mode (`V`), click **Data Structures** to view side-by-side push/pop and enqueue/dequeue benchmarks across 50,000 operations. |
+| **Feature 1** | Multi-Table Dine-In Management *(Member 2)* | `src/models.hpp:Table`<br>`src/main.cpp:gTables` | 12 dining tables across 4 sections, real-time `VACANT` / `OCCUPIED` states, table turnover lifecycle | Select tables 1-12, add dishes, settle bill to free table back to vacant. |
+| **Feature 2** | Live Kitchen KOT Board *(Member 3)* | `src/array_queue.hpp:PriorityOrderQueue`<br>`src/main.cpp:gActiveOrders` | Multi-ticket concurrent kitchen display with live stage progression (`ORDERED` ➔ `PREPARING` ➔ `SERVED`) | View multiple concurrent orders simultaneously on the kitchen board. |
+| **Feature 3** | Staff Attendance Register *(Member 5)* | `src/models.hpp:StaffMember`<br>`src/main.cpp:gStaff` | Daily duty roster for 8 staff members across morning, evening, and full-day shifts with hours tracking | Toggle staff attendance on duty / off duty. |
 
 ---
 
 ## Live Demonstration Script for Viva / Exam
 
-1. **Step 1 - Customer Experience & Architecture [Modules I, VI]**:
-   - Open `http://localhost:3000`. Show the clean, editorial food delivery storefront.
-   - Point to the restaurant cards and dish catalog across 6 culinary styles (Biryani, Dosa, Italian, Ramen, Burgers, Desserts).
-   - Explain: *"Dishes are stored in a fixed array of `MenuItem` structs [Module VI]. Notice the dietary badges computed via bitwise operators on `dietaryFlags` [Module I]."*
+1. **Step 1 - Dining Tables & Catalog [Modules I, VI]**:
+   - Open `http://localhost:3000`. Show the POS Tables & Billing screen.
+   - Point to the 12 dining table cards (Tables 2, 5, 8 occupied; others vacant).
+   - Point to the 6 kitchen outlets (Grand Mughal, Dakshin, Trattoria Bella, Sakura Asian, Boulevard Grill, Royal Patisserie) and 48 menu items.
+   - Explain: *"Dishes and tables are stored in fixed arrays of structs [Module VI]. Notice financial rates and bitwise dietary flags [Module I]."*
 
-2. **Step 2 - Fuzzy Dish Search & Strings [Module V]**:
-   - Type `piza` or `biryani` in the search bar.
+2. **Step 2 - Fuzzy Dish Search & Levenshtein [Module V]**:
+   - Type `piza` or `biryany` in the search bar.
    - Click the "Did you mean pizza?" suggestion chip.
-   - Explain: *"Search uses custom string normalization, substring search, and the Levenshtein edit-distance dynamic programming algorithm [Module V] to find close matches."*
+   - Explain: *"Search uses custom string tokenizing, substring search, and the Levenshtein distance dynamic programming matrix [Module V] to identify close matches."*
 
-3. **Step 3 - Cart & Hand-Crafted Stack Undo [Module VIII]**:
-   - Add "Dum Handi Mutton Biryani", then add "Mirchi Ka Salan".
-   - Open the slide-over cart drawer. Click the **Undo** button.
-   - Explain: *"Every mutation is encapsulated as a `CartAction` and pushed onto our hand-crafted `ArrayStack` [Module VIII]. Clicking Undo executes a LIFO pop and runs the inverse operation."*
-   - Press `V` on the keyboard to open **Viva Mode**. Point to the **Memory & Data Structure Inspector** showing the live `ArrayStack` frame count and `topIndex`.
+3. **Step 3 - Table Order & Hand-Crafted ArrayStack Undo [Module VIII]**:
+   - Select Table 3. Add "Hyderabadi Chicken Dum Biryani", then add "Burani Garlic Raita".
+   - Click the **Undo** button.
+   - Explain: *"Every table modification is pushed onto our hand-crafted `ArrayStack` [Module VIII]. Clicking Undo executes a LIFO pop and reverts the exact state change."*
+   - Press `V` to open **Viva Mode**. Point to the **Memory Inspector** showing the live `ArrayStack` frame count.
 
-4. **Step 4 - 2D Distance Matrix & String Reversal Check Digit [Modules IV, V, VI]**:
-   - Select delivery zone "East" and enable "Express Priority Delivery".
-   - Point out the delivery fee calculated using the 5×5 symmetric zone distance matrix (`ZONE_DISTANCE_MATRIX[restaurantZone][customerZone]`) [Module IV].
-   - Enter coupon `LEVEL` or `RACECAR`. The engine validates the coupon and reverses the string to detect the palindrome bonus!
-   - Click **Complete Order**.
-   - Show the generated tracking code (e.g. `TRK-1001-8`).
-   - Explain: *"To ensure tamper-proof order identification, the check digit is calculated by reversing the order digits using our string reversal algorithm [Module V] with weighted modulo-9 verification."*
+4. **Step 4 - Punch KOT & Circular Kitchen Queue [Module IX]**:
+   - Check "Express KOT (+₹50)" and click **Punch KOT**.
+   - Show that Table 3 is now `OCCUPIED` with an active order ID.
+   - Navigate to **Kitchen KOT Board (`#kitchen`)**.
+   - Point to the active tickets running simultaneously (Tables 2, 5, 8, 3).
+   - Advance stage: click **Start Prep**, then **Mark Served**.
+   - Explain: *"The kitchen queue uses a custom array-based `CircularQueue` with modulo arithmetic [Module IX] and priority fast-track for express orders."*
 
-5. **Step 5 - Kitchen Circular Queue & Priority Dispatch [Module IX]**:
-   - On the Order Tracking page, point to the live 4-stage pipeline.
-   - Click **Simulate Next Stage**. The kitchen circular queue dequeues the order. If express was selected, it jumps ahead of standard orders in `PriorityOrderQueue` [Module IX].
-   - In Viva Mode, point to the Circular Queue front and rear indices wrapping around using modulo arithmetic.
+5. **Step 5 - Bill Generation & Thermal Receipt Printing [Modules I, V, X]**:
+   - Return to Table 3. Click **Settle & Print Bill**.
+   - Show the generated Tax Invoice & Thermal Receipt modal:
+     - 5% GST (SGST+CGST) + 5% Service Charge calculated.
+     - Verified invoice code (e.g. `INV-5003-7`) generated using string reversal check-digit [Module V].
+     - Formatted ASCII thermal paper receipt layout.
+     - Table 3 is automatically returned to `VACANT`.
+   - Navigate to **Past Bills (`#bills`)** to show the invoice safely stored in the `std::deque` archive [Module X].
 
-6. **Step 6 - Admin 6×7 Revenue Matrix [Module IV]**:
-   - Navigate to `#admin` in the browser.
-   - Point to the 6×7 sales matrix: 6 rows (restaurants) × 7 columns (days of the week).
-   - Explain: *"Row sums yield total weekly restaurant revenue; column sums yield total daily platform revenue. The peak sales cell is identified via 2D matrix traversal."*
+6. **Step 6 - Staff Attendance Register [Module III]**:
+   - Navigate to **Staff & Shifts (`#staff`)**.
+   - Point to the 8 staff members, roles, assigned shifts, and hours clocked today.
+   - Toggle attendance for a staff member to show dynamic array updates [Module III].
 
-7. **Step 7 - Microsecond Performance Benchmarks & STL Comparison [Modules VII, X]**:
-   - In Viva Mode, click **Run Benchmarks**.
-   - Show the professor the live stopwatch comparison:
-     - Linear Search ($O(N)$) vs Binary Search ($O(\log N)$) on 30,000 items showing a **300x+ speedup**.
-     - Bubble Sort ($O(N^2)$) vs Introsort ($O(N \log N)$).
-   - Click **Compare Hand-Crafted vs STL**.
-   - Show that our hand-crafted `ArrayStack` and `CircularQueue` execute with zero dynamic heap allocations and higher cache locality compared to `std::stack` and `std::queue`.
+7. **Step 7 - 6x7 Sales Revenue Matrix [Module IV]**:
+   - Navigate to **Sales Analytics (`#sales`)**.
+   - Point to the 6 Outlets × 7 Days weekly sales matrix.
+   - Explain: *"Row sums calculate weekly revenue per outlet; column sums calculate daily revenue across the hotel/restaurant complex. Peak sales slot is located via 2D matrix max scan [Module IV]."*
+
+8. **Step 8 - Microsecond Stopwatch Benchmarks & STL Comparison [Modules VII, X]**:
+   - In Viva Mode (`V`), click **Benchmarks** to show measured linear search vs binary search ($O(N)$ vs $O(\log N)$) and bubble sort vs introsort ($O(N^2)$ vs $O(N \log N)$).
+   - Click **Data Structures** to show that our hand-crafted `ArrayStack` and `CircularQueue` achieve zero allocation overhead and high cache locality compared to `std::stack` and `std::queue`.

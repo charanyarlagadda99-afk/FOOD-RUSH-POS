@@ -1,250 +1,356 @@
 // ============================================================================
-// FoodRush - Vercel Serverless Function Engine
-// High-performance, zero-latency serverless handler for all 10 CS Syllabus Modules.
+// FoodRush / RestoRush - Vercel Serverless Function Engine
+// High-performance restaurant POS backend engine implementing Modules I-X
 // ============================================================================
 
 const os = require('os');
 
-// Global in-memory state persisted across warm lambda invocations
+// In-memory state persisted across warm lambda invocations
 if (!global.foodrushState) {
     global.foodrushState = {
-        cart: [],
-        undoStack: [], // [MODULE VIII: Stack] ArrayStack actions
-        recentlyViewed: [],
-        orders: [],
-        kitchenQueue: [], // [MODULE IX: Queue] Circular FIFO queue
-        availableRiders: [1, 2, 3, 4, 5],
-        nextOrderId: 1001,
-        activeCoupon: '',
-        activeDiscountPct: 0.0,
-        // [MODULE IV: 2D Arrays] 6 Restaurants x 7 Days Sales Matrix (₹)
+        activeTableId: 1,
+        tableCarts: {}, // tableId -> { items: [], guestName, couponCode, discountPercent }
+        undoStack: [],  // LIFO Stack for order modifications [MODULE VIII]
+        activeOrders: [
+            {
+                orderId: 1001,
+                tableId: 2,
+                tableName: "Table 2 (Booth)",
+                section: "Main Dining Hall",
+                outletId: 1,
+                outletName: "Grand Mughal Dining",
+                guestName: "Mr. Sharma",
+                serverName: "Vikram Malhotra",
+                orderTime: "13:15 PM",
+                isExpress: false,
+                status: "PREPARING",
+                itemCount: 2,
+                items: [
+                    { itemId: 101, outletId: 1, name: "Hyderabadi Chicken Dum Biryani", price: 320.00, quantity: 2, lineTotal: 640.00 },
+                    { itemId: 107, outletId: 1, name: "Burani Garlic Raita", price: 60.00, quantity: 2, lineTotal: 120.00 }
+                ],
+                subtotal: 760.00,
+                discount: 0.00,
+                gstTax: 38.00,
+                serviceCharge: 38.00,
+                totalAmount: 836.00,
+                queuePosition: 1
+            },
+            {
+                orderId: 1002,
+                tableId: 5,
+                tableName: "Table 5 (Executive)",
+                section: "AC Family Lounge",
+                outletId: 3,
+                outletName: "Trattoria Bella Vista",
+                guestName: "Dr. Kapoor",
+                serverName: "Priya Nair",
+                orderTime: "13:28 PM",
+                isExpress: true,
+                status: "ORDERED",
+                itemCount: 3,
+                items: [
+                    { itemId: 301, outletId: 3, name: "Wood-Fired Margherita Pizza", price: 390.00, quantity: 1, lineTotal: 390.00 },
+                    { itemId: 303, outletId: 3, name: "Truffle Wild Mushroom Fettuccine", price: 460.00, quantity: 1, lineTotal: 460.00 },
+                    { itemId: 308, outletId: 3, name: "Classic Espresso Tiramisu", price: 240.00, quantity: 2, lineTotal: 480.00 }
+                ],
+                subtotal: 1330.00,
+                discount: 0.00,
+                gstTax: 66.50,
+                serviceCharge: 66.50,
+                totalAmount: 1463.00,
+                queuePosition: 2
+            },
+            {
+                orderId: 1003,
+                tableId: 8,
+                tableName: "Table 8 (Sky View)",
+                section: "Rooftop Terrace",
+                outletId: 4,
+                outletName: "Sakura Asian Bistro",
+                guestName: "Ananya & Friend",
+                serverName: "Rohit Verma",
+                orderTime: "13:05 PM",
+                isExpress: false,
+                status: "SERVED",
+                itemCount: 2,
+                items: [
+                    { itemId: 401, outletId: 4, name: "Rich Tonkotsu Black Garlic Ramen", price: 480.00, quantity: 2, lineTotal: 960.00 },
+                    { itemId: 405, outletId: 4, name: "Pan-Seared Chicken Gyoza (6 pcs)", price: 280.00, quantity: 1, lineTotal: 280.00 }
+                ],
+                subtotal: 1240.00,
+                discount: 0.00,
+                gstTax: 62.00,
+                serviceCharge: 62.00,
+                totalAmount: 1364.00,
+                queuePosition: 3
+            }
+        ],
+        pastBills: [
+            {
+                billId: 5001,
+                orderId: 998,
+                tableId: 1,
+                tableName: "Table 1 (Family)",
+                section: "Main Dining Hall",
+                guestName: "Rajesh Verma",
+                serverName: "Vikram Malhotra",
+                billTime: "12:30 PM",
+                itemCount: 2,
+                items: [
+                    { itemId: 101, outletId: 1, name: "Hyderabadi Chicken Dum Biryani", price: 320.00, quantity: 2, lineTotal: 640.00 },
+                    { itemId: 108, outletId: 1, name: "Zafrani Matka Phirni", price: 130.00, quantity: 2, lineTotal: 260.00 }
+                ],
+                subtotal: 900.00,
+                discount: 90.00,
+                gstTax: 40.50,
+                serviceCharge: 40.50,
+                netTotal: 891.00,
+                paymentMethod: "UPI",
+                invoiceCode: "INV-5001-1"
+            },
+            {
+                billId: 5002,
+                orderId: 999,
+                tableId: 4,
+                tableName: "Table 4 (Central)",
+                section: "AC Family Lounge",
+                guestName: "Siddharth Rao",
+                serverName: "Priya Nair",
+                billTime: "12:50 PM",
+                itemCount: 2,
+                items: [
+                    { itemId: 201, outletId: 2, name: "Ghee Roast Masala Dosa", price: 160.00, quantity: 2, lineTotal: 320.00 },
+                    { itemId: 208, outletId: 2, name: "Filter Degree Coffee", price: 50.00, quantity: 2, lineTotal: 100.00 }
+                ],
+                subtotal: 420.00,
+                discount: 0.00,
+                gstTax: 21.00,
+                serviceCharge: 21.00,
+                netTotal: 462.00,
+                paymentMethod: "Card",
+                invoiceCode: "INV-5002-3"
+            }
+        ],
+        nextOrderId: 1004,
+        nextBillId: 5003,
+        // [MODULE IV: 2D Arrays] 6 Outlets x 7 Days Sales Matrix
         salesMatrix: [
-            [32500, 28400, 31200, 29800, 48200, 62100, 58400],
-            [18400, 16200, 19100, 17500, 29400, 38200, 36100],
-            [26500, 24100, 25800, 27200, 44100, 56300, 52900],
-            [29100, 27300, 28900, 30100, 49800, 61400, 57800],
-            [21300, 19800, 22400, 23100, 36200, 47500, 44900],
-            [14200, 12800, 15300, 16100, 25400, 34100, 32600]
+            [14200, 13800, 15900, 16400, 22500, 28900, 26400],
+            [9800, 10400, 11200, 11800, 15600, 21400, 19800],
+            [11500, 10900, 12600, 13100, 18900, 24800, 22300],
+            [12800, 12100, 13400, 14200, 19700, 25900, 23700],
+            [13600, 13100, 14800, 15500, 21200, 27800, 25100],
+            [8400, 7900, 8900, 9400, 14200, 19500, 18100]
         ]
     };
 }
 
 const state = global.foodrushState;
 
-// ============================================================================
-// SEED DATA (6 Restaurants, 48 Dishes, 5 Delivery Zones, 5 Riders)
-// ============================================================================
-
-const RESTAURANTS = [
-    { id: 1, name: "Royal Dum Biryani", cuisine: "Biryani & Mughlai", zoneId: 0, rating: 4.9, isOpen: true, itemCount: 8, etaMinutes: 30, minOrder: 200 },
-    { id: 2, name: "Sagar Dosa & Tiffin", cuisine: "South Indian", zoneId: 2, rating: 4.8, isOpen: true, itemCount: 8, etaMinutes: 25, minOrder: 120 },
-    { id: 3, name: "Bella Italia Trattoria", cuisine: "Artisan Italian", zoneId: 1, rating: 4.7, isOpen: true, itemCount: 8, etaMinutes: 35, minOrder: 250 },
-    { id: 4, name: "Tokyo Ramen & Robata", cuisine: "Japanese", zoneId: 3, rating: 4.9, isOpen: true, itemCount: 8, etaMinutes: 32, minOrder: 280 },
-    { id: 5, name: "The Burger & Brews Co.", cuisine: "American Gourmet", zoneId: 4, rating: 4.6, isOpen: true, itemCount: 8, etaMinutes: 28, minOrder: 180 },
-    { id: 6, name: "Sweet Tooth Patisserie", cuisine: "Desserts & Bakery", zoneId: 0, rating: 4.8, isOpen: true, itemCount: 8, etaMinutes: 20, minOrder: 150 }
+// 6 Outlets
+const OUTLETS = [
+    { id: 1, name: "Grand Mughal Dining", cuisine: "Biryani & Mughlai", section: "Main Dining Hall", rating: 4.9, isOpen: true, itemCount: 8 },
+    { id: 2, name: "Dakshin Tiffin & Cafe", cuisine: "South Indian", section: "Ground Floor Cafe", rating: 4.8, isOpen: true, itemCount: 8 },
+    { id: 3, name: "Trattoria Bella Vista", cuisine: "Artisan Italian", section: "First Floor Gallery", rating: 4.7, isOpen: true, itemCount: 8 },
+    { id: 4, name: "Sakura Asian Bistro", cuisine: "Japanese & Asian", section: "AC Fine Dining", rating: 4.9, isOpen: true, itemCount: 8 },
+    { id: 5, name: "The Boulevard Grill & Burgers", cuisine: "American Gourmet", section: "Terrace Garden", rating: 4.6, isOpen: true, itemCount: 8 },
+    { id: 6, name: "The Royal Patisserie", cuisine: "Desserts & Confectionery", section: "Lobby Lounge", rating: 4.8, isOpen: true, itemCount: 8 }
 ];
 
+// 12 Dining Tables
+const TABLES = [
+    { id: 1, name: "Table 1 (Family)", section: "Main Dining Hall", capacity: 4, status: "VACANT", activeOrderId: -1, serverName: "Vikram Malhotra" },
+    { id: 2, name: "Table 2 (Booth)", section: "Main Dining Hall", capacity: 4, status: "OCCUPIED", activeOrderId: 1001, serverName: "Vikram Malhotra" },
+    { id: 3, name: "Table 3 (Round)", section: "Main Dining Hall", capacity: 6, status: "VACANT", activeOrderId: -1, serverName: "Amitav Sen" },
+    { id: 4, name: "Table 4 (Central)", section: "AC Family Lounge", capacity: 6, status: "VACANT", activeOrderId: -1, serverName: "Priya Nair" },
+    { id: 5, name: "Table 5 (Executive)", section: "AC Family Lounge", capacity: 8, status: "OCCUPIED", activeOrderId: 1002, serverName: "Priya Nair" },
+    { id: 6, name: "Table 6 (Corner)", section: "AC Family Lounge", capacity: 4, status: "VACANT", activeOrderId: -1, serverName: "Priya Nair" },
+    { id: 7, name: "Table 7 (Couple)", section: "Rooftop Terrace", capacity: 2, status: "VACANT", activeOrderId: -1, serverName: "Rohit Verma" },
+    { id: 8, name: "Table 8 (Sky View)", section: "Rooftop Terrace", capacity: 4, status: "OCCUPIED", activeOrderId: 1003, serverName: "Rohit Verma" },
+    { id: 9, name: "Table 9 (Sunset)", section: "Rooftop Terrace", capacity: 4, status: "VACANT", activeOrderId: -1, serverName: "Rohit Verma" },
+    { id: 10, name: "Table 10 (Garden)", section: "Garden Lounge & Banquet", capacity: 4, status: "VACANT", activeOrderId: -1, serverName: "Amitav Sen" },
+    { id: 11, name: "Table 11 (Banquet A)", section: "Garden Lounge & Banquet", capacity: 8, status: "VACANT", activeOrderId: -1, serverName: "Sunita Sharma" },
+    { id: 12, name: "Table 12 (Banquet B)", section: "Garden Lounge & Banquet", capacity: 10, status: "VACANT", activeOrderId: -1, serverName: "Sunita Sharma" }
+];
+
+// 8 Staff Members
+const STAFF = [
+    { id: 1, name: "Chef Rajesh Kumar", role: "Head Chef", shift: "Morning (8am-4pm)", isPresent: true, hoursWorked: 7.5, phone: "+91 98765 43201" },
+    { id: 2, name: "Chef Antonio Rossi", role: "Sous Chef", shift: "Evening (4pm-12am)", isPresent: true, hoursWorked: 6.0, phone: "+91 98765 43202" },
+    { id: 3, name: "Vikram Malhotra", role: "Captain Waiter", shift: "Morning (8am-4pm)", isPresent: true, hoursWorked: 8.0, phone: "+91 98765 43203" },
+    { id: 4, name: "Priya Nair", role: "Senior Table Server", shift: "Evening (4pm-12am)", isPresent: true, hoursWorked: 7.0, phone: "+91 98765 43204" },
+    { id: 5, name: "Amitav Sen", role: "Table Server", shift: "Morning (8am-4pm)", isPresent: true, hoursWorked: 8.0, phone: "+91 98765 43205" },
+    { id: 6, name: "Kavita Rao", role: "Head Cashier & Billing", shift: "Morning (8am-4pm)", isPresent: true, hoursWorked: 8.0, phone: "+91 98765 43206" },
+    { id: 7, name: "Rohit Verma", role: "Beverage & Barista", shift: "Evening (4pm-12am)", isPresent: true, hoursWorked: 7.5, phone: "+91 98765 43207" },
+    { id: 8, name: "Sunita Sharma", role: "Floor Supervisor", shift: "Full Day", isPresent: true, hoursWorked: 9.0, phone: "+91 98765 43208" }
+];
+
+// 48 Menu Items
 const MENU_ITEMS = [
-    // Royal Dum Biryani (IDs 101 - 108)
-    { id: 101, restaurantId: 1, name: "Hyderabadi Chicken Dum Biryani", category: "Biryani", price: 320.00, stock: 30, isVeg: false, calories: 840, dietaryFlags: 5 },
-    { id: 102, restaurantId: 1, name: "Awadhi Mutton Dum Biryani", category: "Biryani", price: 440.00, stock: 20, isVeg: false, calories: 960, dietaryFlags: 4 },
-    { id: 103, restaurantId: 1, name: "Nawabi Paneer Tikka Biryani", category: "Biryani", price: 280.00, stock: 25, isVeg: true, calories: 720, dietaryFlags: 2 },
-    { id: 104, restaurantId: 1, name: "Murgh Malai Chicken Tikka", category: "Kebabs", price: 290.00, stock: 25, isVeg: false, calories: 580, dietaryFlags: 0 },
-    { id: 105, restaurantId: 1, name: "Fiery Andhra Chicken Fry", category: "Starters", price: 260.00, stock: 22, isVeg: false, calories: 620, dietaryFlags: 1 },
-    { id: 106, restaurantId: 1, name: "Shahi Mirchi Ka Salan", category: "Sides", price: 90.00, stock: 40, isVeg: true, calories: 210, dietaryFlags: 1 },
-    { id: 107, restaurantId: 1, name: "Burani Garlic Raita", category: "Sides", price: 60.00, stock: 50, isVeg: true, calories: 140, dietaryFlags: 2 },
-    { id: 108, restaurantId: 1, name: "Zafrani Matka Phirni", category: "Desserts", price: 130.00, stock: 35, isVeg: true, calories: 340, dietaryFlags: 0 },
+    // Grand Mughal Dining (IDs 101 - 108)
+    { id: 101, restaurantId: 1, outletId: 1, name: "Hyderabadi Chicken Dum Biryani", category: "Biryani", price: 320.00, stock: 30, reservedStock: 0, availableStock: 30, rating: 4.9, ratingCount: 64, isVeg: false, calories: 840, isSpicy: true, isGlutenFree: false, isChefSpecial: true },
+    { id: 102, restaurantId: 1, outletId: 1, name: "Awadhi Mutton Dum Biryani", category: "Biryani", price: 440.00, stock: 20, reservedStock: 0, availableStock: 20, rating: 4.8, ratingCount: 42, isVeg: false, calories: 960, isSpicy: false, isGlutenFree: false, isChefSpecial: true },
+    { id: 103, restaurantId: 1, outletId: 1, name: "Nawabi Paneer Tikka Biryani", category: "Biryani", price: 280.00, stock: 25, reservedStock: 0, availableStock: 25, rating: 4.7, ratingCount: 31, isVeg: true, calories: 720, isSpicy: false, isGlutenFree: true, isChefSpecial: false },
+    { id: 104, restaurantId: 1, outletId: 1, name: "Murgh Malai Chicken Tikka", category: "Kebabs", price: 290.00, stock: 25, reservedStock: 0, availableStock: 25, rating: 4.6, ratingCount: 28, isVeg: false, calories: 580, isSpicy: false, isGlutenFree: false, isChefSpecial: false },
+    { id: 105, restaurantId: 1, outletId: 1, name: "Fiery Andhra Chicken Fry", category: "Starters", price: 260.00, stock: 22, reservedStock: 0, availableStock: 22, rating: 4.7, ratingCount: 35, isVeg: false, calories: 620, isSpicy: true, isGlutenFree: false, isChefSpecial: false },
+    { id: 106, restaurantId: 1, outletId: 1, name: "Shahi Mirchi Ka Salan", category: "Sides", price: 90.00, stock: 40, reservedStock: 0, availableStock: 40, rating: 4.5, ratingCount: 20, isVeg: true, calories: 210, isSpicy: true, isGlutenFree: false, isChefSpecial: false },
+    { id: 107, restaurantId: 1, outletId: 1, name: "Burani Garlic Raita", category: "Sides", price: 60.00, stock: 50, reservedStock: 0, availableStock: 50, rating: 4.6, ratingCount: 25, isVeg: true, calories: 140, isSpicy: false, isGlutenFree: true, isChefSpecial: false },
+    { id: 108, restaurantId: 1, outletId: 1, name: "Zafrani Matka Phirni", category: "Desserts", price: 130.00, stock: 35, reservedStock: 0, availableStock: 35, rating: 4.9, ratingCount: 52, isVeg: true, calories: 340, isSpicy: false, isGlutenFree: false, isChefSpecial: true },
 
-    // Sagar Dosa & Tiffin (IDs 201 - 208)
-    { id: 201, restaurantId: 2, name: "Ghee Roast Masala Dosa", category: "Dosa", price: 160.00, stock: 40, isVeg: true, calories: 420, dietaryFlags: 4 },
-    { id: 202, restaurantId: 2, name: "Mysore Onion Rava Dosa", category: "Dosa", price: 175.00, stock: 35, isVeg: true, calories: 460, dietaryFlags: 1 },
-    { id: 203, restaurantId: 2, name: "Steamed Button Idli (4 pcs)", category: "Tiffin", price: 95.00, stock: 50, isVeg: true, calories: 240, dietaryFlags: 2 },
-    { id: 204, restaurantId: 2, name: "Crispy Medu Vada (2 pcs)", category: "Tiffin", price: 90.00, stock: 45, isVeg: true, calories: 310, dietaryFlags: 0 },
-    { id: 205, restaurantId: 2, name: "Chettinad Spicy Paneer Dosa", category: "Dosa", price: 195.00, stock: 30, isVeg: true, calories: 510, dietaryFlags: 1 },
-    { id: 206, restaurantId: 2, name: "Bisi Bele Bath with Boondi", category: "Rice", price: 140.00, stock: 30, isVeg: true, calories: 480, dietaryFlags: 0 },
-    { id: 207, restaurantId: 2, name: "Pineapple Kesari Halwa", category: "Desserts", price: 110.00, stock: 35, isVeg: true, calories: 390, dietaryFlags: 0 },
-    { id: 208, restaurantId: 2, name: "Filter Degree Coffee", category: "Beverages", price: 50.00, stock: 60, isVeg: true, calories: 120, dietaryFlags: 0 },
+    // Dakshin Tiffin & Cafe (IDs 201 - 208)
+    { id: 201, restaurantId: 2, outletId: 2, name: "Ghee Roast Masala Dosa", category: "Dosa", price: 160.00, stock: 40, reservedStock: 0, availableStock: 40, rating: 4.9, ratingCount: 78, isVeg: true, calories: 420, isSpicy: false, isGlutenFree: false, isChefSpecial: true },
+    { id: 202, restaurantId: 2, outletId: 2, name: "Mysore Onion Rava Dosa", category: "Dosa", price: 175.00, stock: 35, reservedStock: 0, availableStock: 35, rating: 4.8, ratingCount: 45, isVeg: true, calories: 460, isSpicy: true, isGlutenFree: false, isChefSpecial: false },
+    { id: 203, restaurantId: 2, outletId: 2, name: "Steamed Button Idli (4 pcs)", category: "Tiffin", price: 95.00, stock: 50, reservedStock: 0, availableStock: 50, rating: 4.7, ratingCount: 50, isVeg: true, calories: 240, isSpicy: false, isGlutenFree: true, isChefSpecial: false },
+    { id: 204, restaurantId: 2, outletId: 2, name: "Crispy Medu Vada (2 pcs)", category: "Tiffin", price: 90.00, stock: 45, reservedStock: 0, availableStock: 45, rating: 4.6, ratingCount: 38, isVeg: true, calories: 310, isSpicy: false, isGlutenFree: false, isChefSpecial: false },
+    { id: 205, restaurantId: 2, outletId: 2, name: "Chettinad Spicy Paneer Dosa", category: "Dosa", price: 195.00, stock: 30, reservedStock: 0, availableStock: 30, rating: 4.8, ratingCount: 36, isVeg: true, calories: 510, isSpicy: true, isGlutenFree: false, isChefSpecial: false },
+    { id: 206, restaurantId: 2, outletId: 2, name: "Bisi Bele Bath with Boondi", category: "Rice", price: 140.00, stock: 30, reservedStock: 0, availableStock: 30, rating: 4.5, ratingCount: 29, isVeg: true, calories: 480, isSpicy: false, isGlutenFree: false, isChefSpecial: false },
+    { id: 207, restaurantId: 2, outletId: 2, name: "Pineapple Kesari Halwa", category: "Desserts", price: 110.00, stock: 35, reservedStock: 0, availableStock: 35, rating: 4.7, ratingCount: 40, isVeg: true, calories: 390, isSpicy: false, isGlutenFree: false, isChefSpecial: false },
+    { id: 208, restaurantId: 2, outletId: 2, name: "Filter Degree Coffee", category: "Beverages", price: 50.00, stock: 60, reservedStock: 0, availableStock: 60, rating: 4.9, ratingCount: 90, isVeg: true, calories: 120, isSpicy: false, isGlutenFree: false, isChefSpecial: true },
 
-    // Bella Italia Trattoria (IDs 301 - 308)
-    { id: 301, restaurantId: 3, name: "Wood-Fired Margherita Pizza", category: "Pizza", price: 390.00, stock: 25, isVeg: true, calories: 780, dietaryFlags: 4 },
-    { id: 302, restaurantId: 3, name: "Spicy Penne Arrabbiata", category: "Pasta", price: 340.00, stock: 20, isVeg: true, calories: 610, dietaryFlags: 1 },
-    { id: 303, restaurantId: 3, name: "Truffle Wild Mushroom Fettuccine", category: "Pasta", price: 460.00, stock: 15, isVeg: true, calories: 790, dietaryFlags: 4 },
-    { id: 304, restaurantId: 3, name: "Smoked Chicken & Jalapeno Pizza", category: "Pizza", price: 440.00, stock: 20, isVeg: false, calories: 860, dietaryFlags: 1 },
-    { id: 305, restaurantId: 3, name: "Pesto Genovese Gnocchi", category: "Pasta", price: 380.00, stock: 18, isVeg: true, calories: 640, dietaryFlags: 2 },
-    { id: 306, restaurantId: 3, name: "Rosemary Garlic Focaccia", category: "Breads", price: 140.00, stock: 30, isVeg: true, calories: 320, dietaryFlags: 0 },
-    { id: 307, restaurantId: 3, name: "Burrata Caprese Salad", category: "Salads", price: 310.00, stock: 20, isVeg: true, calories: 390, dietaryFlags: 2 },
-    { id: 308, restaurantId: 3, name: "Classic Espresso Tiramisu", category: "Desserts", price: 240.00, stock: 25, isVeg: true, calories: 410, dietaryFlags: 0 },
+    // Trattoria Bella Vista (IDs 301 - 308)
+    { id: 301, restaurantId: 3, outletId: 3, name: "Wood-Fired Margherita Pizza", category: "Pizza", price: 390.00, stock: 25, reservedStock: 0, availableStock: 25, rating: 4.8, ratingCount: 55, isVeg: true, calories: 780, isSpicy: false, isGlutenFree: false, isChefSpecial: true },
+    { id: 302, restaurantId: 3, outletId: 3, name: "Spicy Penne Arrabbiata", category: "Pasta", price: 340.00, stock: 20, reservedStock: 0, availableStock: 20, rating: 4.6, ratingCount: 30, isVeg: true, calories: 610, isSpicy: true, isGlutenFree: false, isChefSpecial: false },
+    { id: 303, restaurantId: 3, outletId: 3, name: "Truffle Wild Mushroom Fettuccine", category: "Pasta", price: 460.00, stock: 15, reservedStock: 0, availableStock: 15, rating: 4.9, ratingCount: 44, isVeg: true, calories: 790, isSpicy: false, isGlutenFree: false, isChefSpecial: true },
+    { id: 304, restaurantId: 3, outletId: 3, name: "Smoked Chicken & Jalapeno Pizza", category: "Pizza", price: 440.00, stock: 20, reservedStock: 0, availableStock: 20, rating: 4.7, ratingCount: 33, isVeg: false, calories: 860, isSpicy: true, isGlutenFree: false, isChefSpecial: false },
+    { id: 305, restaurantId: 3, outletId: 3, name: "Pesto Genovese Gnocchi", category: "Pasta", price: 380.00, stock: 18, reservedStock: 0, availableStock: 18, rating: 4.5, ratingCount: 22, isVeg: true, calories: 640, isSpicy: false, isGlutenFree: true, isChefSpecial: false },
+    { id: 306, restaurantId: 3, outletId: 3, name: "Rosemary Garlic Focaccia", category: "Breads", price: 140.00, stock: 30, reservedStock: 0, availableStock: 30, rating: 4.6, ratingCount: 26, isVeg: true, calories: 320, isSpicy: false, isGlutenFree: false, isChefSpecial: false },
+    { id: 307, restaurantId: 3, outletId: 3, name: "Burrata Caprese Salad", category: "Salads", price: 310.00, stock: 20, reservedStock: 0, availableStock: 20, rating: 4.7, ratingCount: 27, isVeg: true, calories: 390, isSpicy: false, isGlutenFree: true, isChefSpecial: false },
+    { id: 308, restaurantId: 3, outletId: 3, name: "Classic Espresso Tiramisu", category: "Desserts", price: 240.00, stock: 25, reservedStock: 0, availableStock: 25, rating: 4.9, ratingCount: 61, isVeg: true, calories: 410, isSpicy: false, isGlutenFree: false, isChefSpecial: true },
 
-    // Tokyo Ramen & Robata (IDs 401 - 408)
-    { id: 401, restaurantId: 4, name: "Rich Tonkotsu Black Garlic Ramen", category: "Ramen", price: 480.00, stock: 25, isVeg: false, calories: 890, dietaryFlags: 4 },
-    { id: 402, restaurantId: 4, name: "Spicy Miso Tofu Ramen", category: "Ramen", price: 410.00, stock: 25, isVeg: true, calories: 720, dietaryFlags: 1 },
-    { id: 403, restaurantId: 4, name: "Crispy Vegetable Tempura Roll", category: "Sushi", price: 350.00, stock: 20, isVeg: true, calories: 410, dietaryFlags: 0 },
-    { id: 404, restaurantId: 4, name: "Salmon & Avocado Maki (8 pcs)", category: "Sushi", price: 490.00, stock: 15, isVeg: false, calories: 480, dietaryFlags: 2 },
-    { id: 405, restaurantId: 4, name: "Pan-Seared Chicken Gyoza (6 pcs)", category: "Dim Sum", price: 280.00, stock: 30, isVeg: false, calories: 360, dietaryFlags: 0 },
-    { id: 406, restaurantId: 4, name: "Steamed Truffle Edamame", category: "Appetizers", price: 220.00, stock: 35, isVeg: true, calories: 190, dietaryFlags: 2 },
-    { id: 407, restaurantId: 4, name: "Karaage Japanese Fried Chicken", category: "Starters", price: 320.00, stock: 25, isVeg: false, calories: 610, dietaryFlags: 1 },
-    { id: 408, restaurantId: 4, name: "Matcha Green Tea Mochi (3 pcs)", category: "Desserts", price: 180.00, stock: 30, isVeg: true, calories: 260, dietaryFlags: 2 },
+    // Sakura Asian Bistro (IDs 401 - 408)
+    { id: 401, restaurantId: 4, outletId: 4, name: "Rich Tonkotsu Black Garlic Ramen", category: "Ramen", price: 480.00, stock: 25, reservedStock: 0, availableStock: 25, rating: 4.9, ratingCount: 72, isVeg: false, calories: 890, isSpicy: false, isGlutenFree: false, isChefSpecial: true },
+    { id: 402, restaurantId: 4, outletId: 4, name: "Spicy Miso Tofu Ramen", category: "Ramen", price: 410.00, stock: 25, reservedStock: 0, availableStock: 25, rating: 4.7, ratingCount: 39, isVeg: true, calories: 720, isSpicy: true, isGlutenFree: false, isChefSpecial: false },
+    { id: 403, restaurantId: 4, outletId: 4, name: "Crispy Vegetable Tempura Roll", category: "Sushi", price: 350.00, stock: 20, reservedStock: 0, availableStock: 20, rating: 4.6, ratingCount: 34, isVeg: true, calories: 410, isSpicy: false, isGlutenFree: false, isChefSpecial: false },
+    { id: 404, restaurantId: 4, outletId: 4, name: "Salmon & Avocado Maki (8 pcs)", category: "Sushi", price: 490.00, stock: 15, reservedStock: 0, availableStock: 15, rating: 4.8, ratingCount: 48, isVeg: false, calories: 480, isSpicy: false, isGlutenFree: true, isChefSpecial: false },
+    { id: 405, restaurantId: 4, outletId: 4, name: "Pan-Seared Chicken Gyoza (6 pcs)", category: "Dim Sum", price: 280.00, stock: 30, reservedStock: 0, availableStock: 30, rating: 4.7, ratingCount: 37, isVeg: false, calories: 360, isSpicy: false, isGlutenFree: false, isChefSpecial: false },
+    { id: 406, restaurantId: 4, outletId: 4, name: "Steamed Truffle Edamame", category: "Appetizers", price: 220.00, stock: 35, reservedStock: 0, availableStock: 35, rating: 4.5, ratingCount: 21, isVeg: true, calories: 190, isSpicy: false, isGlutenFree: true, isChefSpecial: false },
+    { id: 407, restaurantId: 4, outletId: 4, name: "Karaage Japanese Fried Chicken", category: "Starters", price: 320.00, stock: 25, reservedStock: 0, availableStock: 25, rating: 4.8, ratingCount: 46, isVeg: false, calories: 610, isSpicy: true, isGlutenFree: false, isChefSpecial: false },
+    { id: 408, restaurantId: 4, outletId: 4, name: "Matcha Green Tea Mochi (3 pcs)", category: "Desserts", price: 180.00, stock: 30, reservedStock: 0, availableStock: 30, rating: 4.8, ratingCount: 50, isVeg: true, calories: 260, isSpicy: false, isGlutenFree: true, isChefSpecial: false },
 
-    // The Burger & Brews Co. (IDs 501 - 508)
-    { id: 501, restaurantId: 5, name: "Smoked Bacon Cheddar Smash Burger", category: "Burgers", price: 360.00, stock: 30, isVeg: false, calories: 920, dietaryFlags: 4 },
-    { id: 502, restaurantId: 5, name: "Nashville Hot Crispy Chicken Burger", category: "Burgers", price: 330.00, stock: 25, isVeg: false, calories: 840, dietaryFlags: 1 },
-    { id: 503, restaurantId: 5, name: "Truffle Wild Mushroom Veggie Burger", category: "Burgers", price: 290.00, stock: 25, isVeg: true, calories: 670, dietaryFlags: 0 },
-    { id: 504, restaurantId: 5, name: "Peri-Peri Seasoned Curly Fries", category: "Sides", price: 140.00, stock: 50, isVeg: true, calories: 390, dietaryFlags: 1 },
-    { id: 505, restaurantId: 5, name: "Smoky BBQ Glazed Wings (6 pcs)", category: "Starters", price: 310.00, stock: 25, isVeg: false, calories: 680, dietaryFlags: 0 },
-    { id: 506, restaurantId: 5, name: "Crispy Onion Rings with Garlic Dip", category: "Sides", price: 150.00, stock: 40, isVeg: true, calories: 340, dietaryFlags: 0 },
-    { id: 507, restaurantId: 5, name: "Hand-Spun Salted Caramel Shake", category: "Beverages", price: 190.00, stock: 35, isVeg: true, calories: 510, dietaryFlags: 0 },
-    { id: 508, restaurantId: 5, name: "Molten Chocolate Lava Cake", category: "Desserts", price: 210.00, stock: 30, isVeg: true, calories: 540, dietaryFlags: 4 },
+    // The Boulevard Grill & Burgers (IDs 501 - 508)
+    { id: 501, restaurantId: 5, outletId: 5, name: "Smoked Bacon Cheddar Smash Burger", category: "Burgers", price: 360.00, stock: 30, reservedStock: 0, availableStock: 30, rating: 4.8, ratingCount: 59, isVeg: false, calories: 920, isSpicy: false, isGlutenFree: false, isChefSpecial: true },
+    { id: 502, restaurantId: 5, outletId: 5, name: "Nashville Hot Crispy Chicken Burger", category: "Burgers", price: 330.00, stock: 25, reservedStock: 0, availableStock: 25, rating: 4.7, ratingCount: 43, isVeg: false, calories: 840, isSpicy: true, isGlutenFree: false, isChefSpecial: false },
+    { id: 503, restaurantId: 5, outletId: 5, name: "Truffle Wild Mushroom Veggie Burger", category: "Burgers", price: 290.00, stock: 25, reservedStock: 0, availableStock: 25, rating: 4.6, ratingCount: 32, isVeg: true, calories: 670, isSpicy: false, isGlutenFree: false, isChefSpecial: false },
+    { id: 504, restaurantId: 5, outletId: 5, name: "Peri-Peri Seasoned Curly Fries", category: "Sides", price: 140.00, stock: 50, reservedStock: 0, availableStock: 50, rating: 4.7, ratingCount: 45, isVeg: true, calories: 390, isSpicy: true, isGlutenFree: false, isChefSpecial: false },
+    { id: 505, restaurantId: 5, outletId: 5, name: "Smoky BBQ Glazed Wings (6 pcs)", category: "Starters", price: 310.00, stock: 25, reservedStock: 0, availableStock: 25, rating: 4.6, ratingCount: 38, isVeg: false, calories: 680, isSpicy: false, isGlutenFree: false, isChefSpecial: false },
+    { id: 506, restaurantId: 5, outletId: 5, name: "Crispy Onion Rings with Garlic Dip", category: "Sides", price: 150.00, stock: 40, reservedStock: 0, availableStock: 40, rating: 4.5, ratingCount: 29, isVeg: true, calories: 340, isSpicy: false, isGlutenFree: false, isChefSpecial: false },
+    { id: 507, restaurantId: 5, outletId: 5, name: "Hand-Spun Salted Caramel Shake", category: "Beverages", price: 190.00, stock: 35, reservedStock: 0, availableStock: 35, rating: 4.8, ratingCount: 41, isVeg: true, calories: 510, isSpicy: false, isGlutenFree: false, isChefSpecial: false },
+    { id: 508, restaurantId: 5, outletId: 5, name: "Molten Chocolate Lava Cake", category: "Desserts", price: 210.00, stock: 30, reservedStock: 0, availableStock: 30, rating: 4.9, ratingCount: 65, isVeg: true, calories: 540, isSpicy: false, isGlutenFree: false, isChefSpecial: true },
 
-    // Sweet Tooth Patisserie (IDs 601 - 608)
-    { id: 601, restaurantId: 6, name: "Belgian Dark Chocolate Ganache Pastry", category: "Pastries", price: 180.00, stock: 30, isVeg: true, calories: 440, dietaryFlags: 4 },
-    { id: 602, restaurantId: 6, name: "Blueberry Baked New York Cheesecake", category: "Cakes", price: 240.00, stock: 25, isVeg: true, calories: 490, dietaryFlags: 0 },
-    { id: 603, restaurantId: 6, name: "Almond French Croissant", category: "Bakery", price: 150.00, stock: 35, isVeg: true, calories: 380, dietaryFlags: 0 },
-    { id: 604, restaurantId: 6, name: "Pistachio Raspberry Macarons (4 pcs)", category: "Desserts", price: 220.00, stock: 20, isVeg: true, calories: 310, dietaryFlags: 2 },
-    { id: 605, restaurantId: 6, name: "Warm Cinnamon Sugar Churros (4 pcs)", category: "Desserts", price: 170.00, stock: 25, isVeg: true, calories: 410, dietaryFlags: 0 },
-    { id: 606, restaurantId: 6, name: "Red Velvet Cream Cheese Slice", category: "Cakes", price: 190.00, stock: 30, isVeg: true, calories: 460, dietaryFlags: 0 },
-    { id: 607, restaurantId: 6, name: "Double Chocolate Walnut Fudge Brownie", category: "Pastries", price: 160.00, stock: 40, isVeg: true, calories: 480, dietaryFlags: 0 },
-    { id: 608, restaurantId: 6, name: "Artisanal Iced Cold Brew", category: "Beverages", price: 140.00, stock: 50, isVeg: true, calories: 40, dietaryFlags: 2 }
+    // The Royal Patisserie (IDs 601 - 608)
+    { id: 601, restaurantId: 6, outletId: 6, name: "Belgian Dark Chocolate Ganache Pastry", category: "Pastries", price: 180.00, stock: 30, reservedStock: 0, availableStock: 30, rating: 4.9, ratingCount: 70, isVeg: true, calories: 440, isSpicy: false, isGlutenFree: false, isChefSpecial: true },
+    { id: 602, restaurantId: 6, outletId: 6, name: "Blueberry Baked New York Cheesecake", category: "Cakes", price: 240.00, stock: 25, reservedStock: 0, availableStock: 25, rating: 4.8, ratingCount: 52, isVeg: true, calories: 490, isSpicy: false, isGlutenFree: false, isChefSpecial: false },
+    { id: 603, restaurantId: 6, outletId: 6, name: "Almond French Croissant", category: "Bakery", price: 150.00, stock: 35, reservedStock: 0, availableStock: 35, rating: 4.7, ratingCount: 36, isVeg: true, calories: 380, isSpicy: false, isGlutenFree: false, isChefSpecial: false },
+    { id: 604, restaurantId: 6, outletId: 6, name: "Pistachio Raspberry Macarons (4 pcs)", category: "Desserts", price: 220.00, stock: 20, reservedStock: 0, availableStock: 20, rating: 4.8, ratingCount: 40, isVeg: true, calories: 310, isSpicy: false, isGlutenFree: true, isChefSpecial: false },
+    { id: 605, restaurantId: 6, outletId: 6, name: "Warm Cinnamon Sugar Churros (4 pcs)", category: "Desserts", price: 170.00, stock: 25, reservedStock: 0, availableStock: 25, rating: 4.6, ratingCount: 28, isVeg: true, calories: 410, isSpicy: false, isGlutenFree: false, isChefSpecial: false },
+    { id: 606, restaurantId: 6, outletId: 6, name: "Red Velvet Cream Cheese Slice", category: "Cakes", price: 190.00, stock: 30, reservedStock: 0, availableStock: 30, rating: 4.7, ratingCount: 35, isVeg: true, calories: 460, isSpicy: false, isGlutenFree: false, isChefSpecial: false },
+    { id: 607, restaurantId: 6, outletId: 6, name: "Double Chocolate Walnut Fudge Brownie", category: "Pastries", price: 160.00, stock: 40, reservedStock: 0, availableStock: 40, rating: 4.8, ratingCount: 48, isVeg: true, calories: 480, isSpicy: false, isGlutenFree: false, isChefSpecial: false },
+    { id: 608, restaurantId: 6, outletId: 6, name: "Artisanal Iced Cold Brew", category: "Beverages", price: 140.00, stock: 50, reservedStock: 0, availableStock: 50, rating: 4.9, ratingCount: 58, isVeg: true, calories: 40, isSpicy: false, isGlutenFree: true, isChefSpecial: true }
 ];
 
-const RIDERS = [
-    { id: 1, name: "Rahul Sharma", vehicle: "Electric Cargo Bike", currentZone: 0, isAvailable: true, totalDeliveries: 184, phone: "+91 98765 43210", activeOrderId: -1, speedMultiplier: 1.00 },
-    { id: 2, name: "Priya Nair", vehicle: "Ather Electric Scooter", currentZone: 1, isAvailable: true, totalDeliveries: 241, phone: "+91 98765 43211", activeOrderId: -1, speedMultiplier: 1.25 },
-    { id: 3, name: "Vikram Malhotra", vehicle: "Hero Splendor EV", currentZone: 2, isAvailable: true, totalDeliveries: 119, phone: "+91 98765 43212", activeOrderId: -1, speedMultiplier: 1.30 },
-    { id: 4, name: "Amitav Sen", vehicle: "TVS iQube Scooter", currentZone: 3, isAvailable: true, totalDeliveries: 195, phone: "+91 98765 43213", activeOrderId: -1, speedMultiplier: 1.25 },
-    { id: 5, name: "Kavita Rao", vehicle: "Ola S1 Pro Electric", currentZone: 4, isAvailable: true, totalDeliveries: 162, phone: "+91 98765 43214", activeOrderId: -1, speedMultiplier: 1.35 }
-];
+const COUPONS = {
+    "WELCOME10": 10.0,
+    "HOTEL50": 50.0,
+    "FESTIVE20": 20.0,
+    "STAFFDISC": 25.0
+};
 
-// Initialize default rating, review count, and stock locks
-MENU_ITEMS.forEach((m, idx) => {
-    if (m.reservedStock === undefined) m.reservedStock = 0;
-    if (m.rating === undefined) m.rating = [4.9, 4.8, 4.7, 4.9, 4.6, 4.8][m.restaurantId - 1] || 4.7;
-    if (m.ratingCount === undefined) m.ratingCount = 40 + (idx % 35);
-});
-
-const ZONE_NAMES = ["Central", "North", "South", "East", "West"];
-const ZONE_DISTANCE_MATRIX = [
-    [0.0, 3.5, 4.2, 5.0, 3.8],
-    [3.5, 0.0, 7.1, 4.8, 6.2],
-    [4.2, 7.1, 0.0, 6.5, 5.4],
-    [5.0, 4.8, 6.5, 0.0, 7.8],
-    [3.8, 6.2, 5.4, 7.8, 0.0]
-];
-
-// ============================================================================
-// ALGORITHMIC HELPERS (MODULES I, IV, V)
-// ============================================================================
-
-// [MODULE V: Strings] Levenshtein Distance (2D Dynamic Programming)
-function levenshteinDistance(s1, s2) {
-    const m = s1.length;
-    const n = s2.length;
-    const dp = Array.from({ length: m + 1 }, () => new Array(n + 1).fill(0));
-
-    for (let i = 0; i <= m; i++) dp[i][0] = i;
-    for (let j = 0; j <= n; j++) dp[0][j] = j;
-
-    for (let i = 1; i <= m; i++) {
-        for (let j = 1; j <= n; j++) {
-            if (s1[i - 1] === s2[j - 1]) {
-                dp[i][j] = dp[i - 1][j - 1];
-            } else {
-                dp[i][j] = 1 + Math.min(dp[i - 1][j], dp[i][j - 1], dp[i - 1][j - 1]);
-            }
-        }
+// Check-digit calculation using string reversal [MODULE V]
+function generateInvoiceCode(billId) {
+    const s = String(billId);
+    let rev = s.split('').reverse().join('');
+    let sum = 0;
+    for (let i = 0; i < rev.length; ++i) {
+        sum += (rev.charCodeAt(i) - 48) * (i + 1);
     }
-    return dp[m][n];
+    const checkDigit = sum % 10;
+    return `INV-${billId}-${checkDigit}`;
 }
 
-// [MODULE V: Strings] Two-pointer string reversal
-function reverseString(s) {
-    return s.split('').reverse().join('');
-}
+function generatePrintReceiptText(bill) {
+    const pad = (str, len, right = false) => {
+        str = String(str);
+        if (str.length > len) str = str.substring(0, len - 2) + '..';
+        return right ? str.padStart(len) : str.padEnd(len);
+    };
 
-// Check digit generation via string reversal
-function generateTrackingCode(orderId) {
-    const idStr = String(orderId);
-    const reversed = reverseString(idStr);
-    let weightedSum = 0;
-    for (let i = 0; i < reversed.length; i++) {
-        weightedSum += parseInt(reversed[i]) * (i + 1);
+    let out = "========================================\n";
+    out += "       THE GRAND REGENCY HOTEL & POS    \n";
+    out += "       Official Tax Invoice & Receipt   \n";
+    out += "========================================\n";
+    out += `Invoice No:  ${bill.invoiceCode}\n`;
+    out += `Bill ID:     #${bill.billId}\n`;
+    out += `Date & Time: ${bill.billTime}\n`;
+    out += `Table:       ${bill.tableName} (${bill.section})\n`;
+    out += `Guest Name:  ${bill.guestName}\n`;
+    out += `Server:      ${bill.serverName}\n`;
+    out += "----------------------------------------\n";
+    out += "ITEM                     QTY   PRICE   TOTAL\n";
+    out += "----------------------------------------\n";
+
+    for (const it of bill.items) {
+        out += `${pad(it.name, 22)}${pad(it.quantity, 3, true)}${pad(it.price.toFixed(2), 8, true)}${pad(it.lineTotal.toFixed(2), 7, true)}\n`;
     }
-    const checkDigit = (weightedSum % 9) + 1;
-    return { code: `TRK-${orderId}-${checkDigit}`, checkDigit };
+
+    out += "----------------------------------------\n";
+    out += `${pad("Item Subtotal:", 30)}${pad(bill.subtotal.toFixed(2), 10, true)}\n`;
+    if (bill.discount > 0) {
+        out += `${pad("Promo Discount:", 30)}${pad("-" + bill.discount.toFixed(2), 10, true)}\n`;
+    }
+    out += `${pad("GST (5% SGST+CGST):", 30)}${pad(bill.gstTax.toFixed(2), 10, true)}\n`;
+    out += `${pad("Service Charge (5%):", 30)}${pad(bill.serviceCharge.toFixed(2), 10, true)}\n`;
+    out += "========================================\n";
+    out += `${pad("NET TOTAL PAYABLE:", 28)}INR ${pad(bill.netTotal.toFixed(2), 8, true)}\n`;
+    out += `Payment Method: ${bill.paymentMethod}\n`;
+    out += "========================================\n";
+    out += "     THANK YOU FOR DINING WITH US!      \n";
+    out += "  GSTIN: 29AABCU9603R1ZM | Bangalore   \n";
+    out += "========================================\n";
+    return out;
 }
 
-function verifyTrackingCheckDigit(code) {
-    const parts = (code || '').split('-');
-    if (parts.length !== 3 || parts[0] !== 'TRK') return false;
-    const orderId = parseInt(parts[1]);
-    const claimedCheckDigit = parseInt(parts[2]);
-    const computed = generateTrackingCode(orderId);
-    return computed.checkDigit === claimedCheckDigit;
-}
+function getTableCart(tableId) {
+    if (!state.tableCarts[tableId]) {
+        state.tableCarts[tableId] = {
+            tableId: tableId,
+            items: [],
+            guestName: "Guest",
+            couponCode: "",
+            discountPercent: 0.0
+        };
+    }
+    const c = state.tableCarts[tableId];
+    const tbl = TABLES.find(t => t.id === tableId) || { name: `Table ${tableId}` };
 
-// [MODULE I: Basics] Bill and Tax Calculations in INR (₹)
-function calculateCartTotals(zoneId = 0, isExpress = false) {
     let subtotal = 0;
-    let restZone = 0;
-
-    for (const item of state.cart) {
-        subtotal += item.price * item.quantity;
-        const dish = MENU_ITEMS.find(m => m.id === item.itemId);
-        if (dish) {
-            const rest = RESTAURANTS.find(r => r.id === dish.restaurantId);
-            if (rest) restZone = rest.zoneId;
-        }
-    }
-
-    if (state.cart.length === 0) {
-        return { subtotal: 0, tax: 0, deliveryFee: 0, discount: 0, total: 0 };
-    }
-
-    const dist = ZONE_DISTANCE_MATRIX[restZone] ? (ZONE_DISTANCE_MATRIX[restZone][zoneId] || 3.5) : 3.5;
-    let deliveryFee = 35.00 + (dist * 8.50);
-    if (isExpress) deliveryFee += 45.00;
-
-    const tax = subtotal * 0.0825;
-    let discount = (subtotal * (state.activeDiscountPct / 100.0));
+    for (const it of c.items) subtotal += (it.price * it.quantity);
+    let discount = (c.discountPercent > 0) ? (subtotal * (c.discountPercent / 100.0)) : 0;
     if (discount > subtotal) discount = subtotal;
 
-    const total = (subtotal - discount) + tax + deliveryFee;
-    return {
-        subtotal: parseFloat(subtotal.toFixed(2)),
-        tax: parseFloat(tax.toFixed(2)),
-        deliveryFee: parseFloat(deliveryFee.toFixed(2)),
-        discount: parseFloat(discount.toFixed(2)),
-        total: parseFloat(total.toFixed(2))
-    };
-}
+    let base = subtotal - discount;
+    let gstTax = base * 0.05;
+    let serviceCharge = base * 0.05;
+    let netTotal = base + gstTax + serviceCharge;
 
-function getCartPayload(zoneId = 0, isExpress = false) {
-    const totals = calculateCartTotals(zoneId, isExpress);
     return {
-        itemCount: state.cart.length,
-        items: state.cart.map(c => ({
-            itemId: c.itemId,
-            name: c.name,
-            price: c.price,
-            quantity: c.quantity,
-            lineTotal: parseFloat((c.price * c.quantity).toFixed(2))
-        })),
-        coupon: state.activeCoupon,
-        discountPercent: state.activeDiscountPct,
-        discountAmount: totals.discount,
-        subtotal: totals.subtotal,
-        tax: totals.tax,
-        deliveryFee: totals.deliveryFee,
-        total: totals.total,
+        tableId,
+        tableName: tbl.name,
+        guestName: c.guestName,
+        itemCount: c.items.length,
+        items: c.items,
+        coupon: c.couponCode,
+        discountPercent: c.discountPercent,
+        discountAmount: Number(discount.toFixed(2)),
+        subtotal: Number(subtotal.toFixed(2)),
+        gstTax: Number(gstTax.toFixed(2)),
+        serviceCharge: Number(serviceCharge.toFixed(2)),
+        netTotal: Number(netTotal.toFixed(2)),
         undoStackDepth: state.undoStack.length
     };
 }
 
-// ============================================================================
-// VERCEL SERVERLESS REQUEST HANDLER
-// ============================================================================
-
 module.exports = async (req, res) => {
-    // CORS headers
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
@@ -254,744 +360,331 @@ module.exports = async (req, res) => {
         return;
     }
 
-    const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
-    let pathname = parsedUrl.pathname;
-    if (pathname.startsWith('/api/')) pathname = pathname.substring(4);
-    if (!pathname.startsWith('/')) pathname = '/' + pathname;
+    const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+    const pathname = url.pathname.replace(/^\/api/, '');
 
-    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    const makeResp = (success, message, data, modules = []) => {
+        return res.status(200).json({
+            success,
+            message,
+            modules,
+            handled_by: modules,
+            data
+        });
+    };
 
-    // Parse body if JSON
-    let body = {};
-    if (req.method === 'POST') {
-        if (req.body && typeof req.body === 'object') {
-            body = req.body;
-        } else if (req.body && typeof req.body === 'string') {
-            try { body = JSON.parse(req.body); } catch (e) {}
+    try {
+        if (pathname === '/initial-state' || pathname === '/ping' || pathname === '') {
+            return makeResp(true, "POS Initial State Loaded", {
+                activeTableId: state.activeTableId,
+                outlets: OUTLETS,
+                tables: TABLES,
+                staff: STAFF,
+                activeCart: getTableCart(state.activeTableId),
+                activeOrdersCount: state.activeOrders.length,
+                kitchenQueueSize: state.activeOrders.filter(o => o.status !== 'BILLED').length
+            }, ["Module I (Basics)", "Module VI (Structures)"]);
         }
-    }
 
-    // 1. PING
-    if (pathname === '/ping') {
-        return res.status(200).json({
-            success: true,
-            message: "FoodRush Engine is alive and ready (Vercel Serverless)",
-            modules: ["Module I (Basics)", "Module II (Control)"],
-            handled_by: ["Module I (Basics)", "Module II (Control)"],
-            data: { status: "OK", platform: os.platform(), serverless: true }
-        });
-    }
+        if (pathname === '/restaurants' || pathname === '/outlets') {
+            return makeResp(true, "Kitchen Outlets Retrieved", OUTLETS, ["Module III (1D Arrays)", "Module VI (Structures)"]);
+        }
 
-    // 2. RESTAURANTS
-    if (pathname === '/restaurants') {
-        return res.status(200).json({
-            success: true,
-            message: "Fetched all restaurants",
-            modules: ["Module VI (Structures - Restaurant)", "Module III (1D Arrays - restaurants[])"],
-            handled_by: ["Module VI (Structures - Restaurant)", "Module III (1D Arrays - restaurants[])"],
-            data: RESTAURANTS
-        });
-    }
+        if (pathname === '/menu') {
+            const outId = parseInt(url.searchParams.get('restaurantId') || url.searchParams.get('outletId') || '0');
+            const items = outId === 0 ? MENU_ITEMS : MENU_ITEMS.filter(i => i.outletId === outId);
+            return makeResp(true, "Menu Retrieved", items, ["Module III (1D Array Traversal)"]);
+        }
 
-    // 3. MENU
-    if (pathname === '/menu') {
-        const restId = parseInt(parsedUrl.searchParams.get('restaurantId') || '0');
-        const items = restId === 0 ? MENU_ITEMS : MENU_ITEMS.filter(m => m.restaurantId === restId);
-        return res.status(200).json({
-            success: true,
-            message: "Fetched menu items",
-            modules: ["Module VI (Structures - MenuItem)", "Module III (1D Arrays - menuItems[])", "Module I (Basics - Bitwise dietary flags)"],
-            handled_by: ["Module VI (Structures - MenuItem)", "Module III (1D Arrays - menuItems[])", "Module I (Basics - Bitwise dietary flags)"],
-            data: items
-        });
-    }
+        if (pathname === '/tables') {
+            return makeResp(true, "Dining Tables Retrieved", TABLES, ["Module VI (Table Structures)"]);
+        }
 
-    // 4. SEARCH
-    if (pathname === '/search') {
-        const q = (parsedUrl.searchParams.get('q') || '').toLowerCase().trim();
-        const matches = MENU_ITEMS.filter(m =>
-            m.name.toLowerCase().includes(q) || m.category.toLowerCase().includes(q)
-        );
+        if (pathname === '/tables/select' && req.method === 'POST') {
+            const tId = parseInt(req.body.tableId || 1);
+            state.activeTableId = tId;
+            return makeResp(true, `Active table switched to Table ${tId}`, getTableCart(tId), ["Module I (State)"]);
+        }
 
-        let didYouMean = null;
-        if (matches.length === 0 && q.length >= 3) {
-            let closestItem = null;
-            let lowestDist = 999;
-            for (const item of MENU_ITEMS) {
-                const words = item.name.toLowerCase().split(/\s+/);
-                for (const word of words) {
-                    const dist = levenshteinDistance(q, word);
-                    if (dist < lowestDist && dist <= 2) {
-                        lowestDist = dist;
-                        closestItem = word;
+        if (pathname === '/cart' || pathname === '/order/current') {
+            const tId = parseInt(url.searchParams.get('tableId') || state.activeTableId);
+            return makeResp(true, `Table ${tId} Order View`, getTableCart(tId), ["Module I (Totals)"]);
+        }
+
+        if ((pathname === '/cart/add' || pathname === '/order/add') && req.method === 'POST') {
+            const { itemId, quantity = 1, tableId = state.activeTableId } = req.body;
+            const item = MENU_ITEMS.find(i => i.id === parseInt(itemId));
+            if (!item) return makeResp(false, "Item not found", null);
+
+            const c = state.tableCarts[tableId] || (state.tableCarts[tableId] = { tableId, items: [], guestName: "Guest", couponCode: "", discountPercent: 0 });
+            let existing = c.items.find(i => i.itemId === item.id);
+            const prevQty = existing ? existing.quantity : 0;
+            const newQty = prevQty + parseInt(quantity);
+
+            if (existing) {
+                existing.quantity = newQty;
+                existing.lineTotal = existing.price * newQty;
+            } else {
+                c.items.push({
+                    itemId: item.id,
+                    outletId: item.outletId,
+                    name: item.name,
+                    price: item.price,
+                    quantity: newQty,
+                    lineTotal: item.price * newQty
+                });
+            }
+
+            state.undoStack.push({
+                type: prevQty === 0 ? "ADD" : "UPDATE_QTY",
+                tableId,
+                itemId: item.id,
+                prevQty,
+                newQty,
+                itemPrice: item.price,
+                itemName: item.name
+            });
+
+            return makeResp(true, "Item added to table order", getTableCart(tableId), ["Module VIII (ArrayStack Push)"]);
+        }
+
+        if ((pathname === '/cart/undo' || pathname === '/order/undo') && req.method === 'POST') {
+            const tId = parseInt(req.body.tableId || state.activeTableId);
+            if (state.undoStack.length === 0) {
+                return makeResp(false, "Nothing to undo", getTableCart(tId), ["Module VIII (Stack Empty)"]);
+            }
+            const act = state.undoStack.pop();
+            const c = state.tableCarts[act.tableId || tId];
+            if (c) {
+                if (act.type === "ADD") {
+                    c.items = c.items.filter(i => i.itemId !== act.itemId);
+                } else if (act.type === "UPDATE_QTY") {
+                    let it = c.items.find(i => i.itemId === act.itemId);
+                    if (it) {
+                        it.quantity = act.prevQty;
+                        it.lineTotal = it.price * act.prevQty;
                     }
                 }
             }
-            if (closestItem) didYouMean = closestItem;
+            return makeResp(true, "Last modification undone", getTableCart(tId), ["Module VIII (ArrayStack Pop)"]);
         }
 
-        matches.forEach(m => state.recentlyViewed.unshift(m));
-        if (state.recentlyViewed.length > 10) state.recentlyViewed.pop();
-
-        return res.status(200).json({
-            success: true,
-            message: `Search found ${matches.length} matches`,
-            modules: [
-                "Module V (Strings - Traversal, toLower, containsSubstring, Levenshtein)",
-                "Module VIII (Stack - Recently Viewed Dishes)",
-                "Module III (1D Arrays - Linear scan)"
-            ],
-            handled_by: [
-                "Module V (Strings - Traversal, toLower, containsSubstring, Levenshtein)",
-                "Module VIII (Stack - Recently Viewed Dishes)",
-                "Module III (1D Arrays - Linear scan)"
-            ],
-            data: { matches, didYouMean, count: matches.length }
-        });
-    }
-
-    // 5. CART VIEW
-    if (pathname === '/cart' && req.method === 'GET') {
-        const zoneId = parseInt(parsedUrl.searchParams.get('zone') || '0');
-        const isExpress = parsedUrl.searchParams.get('express') === '1' || parsedUrl.searchParams.get('express') === 'true';
-
-        return res.status(200).json({
-            success: true,
-            message: "Cart contents",
-            modules: ["Module I (Basics - Tax & Total Calculation)", "Module IV (2D Arrays - Zone Distance Fee)", "Module VI (Structures - CartItem)"],
-            handled_by: ["Module I (Basics - Tax & Total Calculation)", "Module IV (2D Arrays - Zone Distance Fee)", "Module VI (Structures - CartItem)"],
-            data: getCartPayload(zoneId, isExpress)
-        });
-    }
-
-    // 6. CART ADD
-    if (pathname === '/cart/add' && req.method === 'POST') {
-        const itemId = parseInt(body.itemId);
-        const qty = parseInt(body.quantity || 1);
-
-        const dish = MENU_ITEMS.find(m => m.id === itemId);
-        if (!dish) return res.status(404).json({ success: false, message: "Dish not found" });
-
-        const existing = state.cart.find(c => c.itemId === itemId);
-        const prevQty = existing ? existing.quantity : 0;
-        if (existing) {
-            existing.quantity += qty;
-        } else {
-            state.cart.push({ itemId, name: dish.name, price: dish.price, quantity: qty });
+        if ((pathname === '/cart/clear' || pathname === '/order/clear') && req.method === 'POST') {
+            const tId = parseInt(req.body.tableId || state.activeTableId);
+            if (state.tableCarts[tId]) state.tableCarts[tId].items = [];
+            return makeResp(true, `Table ${tId} draft order cleared`, getTableCart(tId), ["Module I (State Reset)"]);
         }
 
-        // Push to ArrayStack for undo
-        state.undoStack.push({ type: 'ADD', itemId, prevQty, newQty: prevQty + qty, name: dish.name });
-
-        return res.status(200).json({
-            success: true,
-            message: `Added ${dish.name} to cart`,
-            modules: ["Module VIII (Stack - push action for undo)", "Module VI (Structures - CartItem)", "Module I (Basics - price calculation)"],
-            handled_by: ["Module VIII (Stack - push action for undo)", "Module VI (Structures - CartItem)", "Module I (Basics - price calculation)"],
-            data: getCartPayload()
-        });
-    }
-
-    // 7. CART REMOVE
-    if (pathname === '/cart/remove' && req.method === 'POST') {
-        const itemId = parseInt(body.itemId);
-
-        const idx = state.cart.findIndex(c => c.itemId === itemId);
-        if (idx !== -1) {
-            const removed = state.cart[idx];
-            state.cart.splice(idx, 1);
-            state.undoStack.push({ type: 'REMOVE', itemId, prevQty: removed.quantity, newQty: 0, name: removed.name });
-        }
-
-        return res.status(200).json({
-            success: true,
-            message: "Removed item from cart",
-            modules: ["Module VIII (Stack - push remove action)", "Module VI (Structures - CartItem)"],
-            handled_by: ["Module VIII (Stack - push remove action)", "Module VI (Structures - CartItem)"],
-            data: getCartPayload()
-        });
-    }
-
-    // 8. CART UNDO
-    if (pathname === '/cart/undo' && req.method === 'POST') {
-        if (state.undoStack.length === 0) {
-            return res.status(200).json({
-                success: false,
-                message: "No actions to undo (ArrayStack is empty)",
-                modules: ["Module VIII (Stack - empty check)"],
-                handled_by: ["Module VIII (Stack - empty check)"],
-                data: getCartPayload()
-            });
-        }
-
-        const lastAction = state.undoStack.pop();
-        if (lastAction.type === 'ADD') {
-            const item = state.cart.find(c => c.itemId === lastAction.itemId);
-            if (item) {
-                if (lastAction.prevQty === 0) {
-                    state.cart = state.cart.filter(c => c.itemId !== lastAction.itemId);
-                } else {
-                    item.quantity = lastAction.prevQty;
-                }
+        if (pathname === '/coupon' && req.method === 'POST') {
+            const { code, tableId = state.activeTableId } = req.body;
+            if (COUPONS[code]) {
+                const c = state.tableCarts[tableId] || (state.tableCarts[tableId] = { tableId, items: [], guestName: "Guest", couponCode: "", discountPercent: 0 });
+                c.couponCode = code;
+                c.discountPercent = COUPONS[code];
+                return makeResp(true, `Coupon applied (${COUPONS[code]}% off)`, getTableCart(tableId), ["Module X (std::map)"]);
             }
-        } else if (lastAction.type === 'REMOVE') {
-            const dish = MENU_ITEMS.find(m => m.id === lastAction.itemId);
-            if (dish) {
-                state.cart.push({ itemId: dish.id, name: dish.name, price: dish.price, quantity: lastAction.prevQty });
+            return makeResp(false, "Invalid coupon code", getTableCart(tableId));
+        }
+
+        if ((pathname === '/kot/submit' || pathname === '/checkout') && req.method === 'POST') {
+            const { guestName = "Guest", isExpress = false, tableId = state.activeTableId } = req.body;
+            const cart = getTableCart(tableId);
+            if (cart.items.length === 0) return makeResp(false, "Order is empty", null);
+
+            const table = TABLES.find(t => t.id === parseInt(tableId));
+            const orderId = state.nextOrderId++;
+
+            const kot = {
+                orderId,
+                tableId: parseInt(tableId),
+                tableName: table ? table.name : `Table ${tableId}`,
+                section: table ? table.section : "Main Dining",
+                outletId: cart.items[0].outletId,
+                outletName: OUTLETS.find(o => o.id === cart.items[0].outletId)?.name || "Kitchen",
+                guestName,
+                serverName: table ? table.serverName : "Server",
+                orderTime: "Just Now",
+                isExpress: !!isExpress,
+                status: "ORDERED",
+                itemCount: cart.items.length,
+                items: [...cart.items],
+                subtotal: cart.subtotal,
+                discount: cart.discountAmount,
+                gstTax: cart.gstTax,
+                serviceCharge: cart.serviceCharge,
+                totalAmount: cart.netTotal,
+                queuePosition: state.activeOrders.filter(o => o.status !== 'BILLED').length + 1
+            };
+
+            state.activeOrders.push(kot);
+            if (table) {
+                table.status = "OCCUPIED";
+                table.activeOrderId = orderId;
             }
+            if (state.tableCarts[tableId]) state.tableCarts[tableId].items = [];
+
+            return makeResp(true, `KOT #${orderId} dispatched to kitchen`, kot, ["Module IX (CircularQueue Enqueue)", "Module VI (Structures)"]);
         }
 
-        return res.status(200).json({
-            success: true,
-            message: `Undid action: ${lastAction.type} ${lastAction.name}`,
-            modules: ["Module VIII (Stack - pop & reverse action)", "Module VI (Structures - CartAction)", "Module X (STL - std::stack synchronizer)"],
-            handled_by: ["Module VIII (Stack - pop & reverse action)", "Module VI (Structures - CartAction)", "Module X (STL - std::stack synchronizer)"],
-            data: getCartPayload()
-        });
-    }
-
-    // 9. CART CLEAR
-    if (pathname === '/cart/clear' && req.method === 'POST') {
-        state.cart = [];
-        state.undoStack = [];
-        return res.status(200).json({
-            success: true,
-            message: "Cart cleared",
-            modules: ["Module VIII (Stack - clear)", "Module I (Basics)"],
-            handled_by: ["Module VIII (Stack - clear)", "Module I (Basics)"],
-            data: getCartPayload()
-        });
-    }
-
-    // 10. COUPON APPLY
-    if (pathname === '/coupon' && req.method === 'POST') {
-        const code = (body.code || '').trim().toUpperCase();
-
-        const COUPONS = {
-            'FIRST50': 50.0,
-            'FOODRUSH': 20.0,
-            'WEEKEND': 15.0,
-            'LEVEL': 25.0,
-            'RACECAR': 30.0
-        };
-
-        if (COUPONS[code]) {
-            state.activeCoupon = code;
-            state.activeDiscountPct = COUPONS[code];
-            const isPalindrome = code.length > 2 && code === reverseString(code);
-
-            return res.status(200).json({
-                success: true,
-                message: isPalindrome
-                    ? `Palindrome Coupon '${code}' Applied! Bonus ${COUPONS[code]}% Discount!`
-                    : `Coupon '${code}' Applied (${COUPONS[code]}% Off)`,
-                modules: [
-                    "Module X (STL - std::map lookup)",
-                    "Module V (Strings - reverseString palindrome check)",
-                    "Module I (Basics - percentage discount)"
-                ],
-                handled_by: [
-                    "Module X (STL - std::map lookup)",
-                    "Module V (Strings - reverseString palindrome check)",
-                    "Module I (Basics - percentage discount)"
-                ],
-                data: {
-                    code,
-                    discountPct: COUPONS[code],
-                    isPalindrome,
-                    totals: calculateCartTotals()
-                }
-            });
+        if (pathname === '/orders/active' || pathname === '/orders' || pathname === '/kot') {
+            const active = state.activeOrders.filter(o => o.status !== 'BILLED');
+            return makeResp(true, "Active Kitchen Orders Retrieved", active, ["Module IX (Kitchen Queue)"]);
         }
 
-        return res.status(400).json({
-            success: false,
-            message: "Invalid coupon code",
-            modules: ["Module X (STL - std::map lookup)", "Module V (Strings)"],
-            handled_by: ["Module X (STL - std::map lookup)", "Module V (Strings)"]
-        });
-    }
+        if (pathname === '/orders/stage' && req.method === 'POST') {
+            const { orderId, stage } = req.body;
+            const kot = state.activeOrders.find(o => o.orderId === parseInt(orderId));
+            if (!kot) return makeResp(false, "Order not found", null);
 
-    // 11. CHECKOUT
-    if (pathname === '/checkout' && req.method === 'POST') {
-        const zoneId = parseInt(body.zoneId || 0);
-        const isExpress = body.isExpress ? 1 : 0;
-
-        if (state.cart.length === 0) {
-            return res.status(400).json({ success: false, message: "Cannot checkout an empty cart" });
+            kot.status = (stage || "PREPARING").toUpperCase();
+            return makeResp(true, `Order #${orderId} status updated to ${kot.status}`, kot, ["Module IX (Circular Queue Dequeue)"]);
         }
 
-        const totals = calculateCartTotals(zoneId, !!isExpress);
-        const orderId = state.nextOrderId++;
-        const tracking = generateTrackingCode(orderId);
+        if (pathname === '/bill/generate' && req.method === 'POST') {
+            const { tableId, paymentMethod = "UPI", coupon = "" } = req.body;
+            const table = TABLES.find(t => t.id === parseInt(tableId));
+            const kot = state.activeOrders.find(o => o.tableId === parseInt(tableId) && o.status !== 'BILLED');
+            if (!kot) return makeResp(false, `No active order found for Table ${tableId}`, null);
 
-        const newOrder = {
-            orderId,
-            trackingCode: tracking.code,
-            checkDigit: tracking.checkDigit,
-            customerName: body.customerName || 'Guest',
-            customerPhone: body.customerPhone || '+91 98765 00000',
-            address: { street: body.street || body.address || 'MG Road', zoneId, city: 'MetroCity' },
-            items: [...state.cart],
-            totals,
-            isExpress: !!isExpress,
-            status: 'CONFIRMED',
-            stageIndex: 0,
-            placedAt: new Date().toISOString(),
-            assignedRiderId: null
-        };
+            const billId = state.nextBillId++;
+            const bill = {
+                billId,
+                orderId: kot.orderId,
+                tableId: parseInt(tableId),
+                tableName: table ? table.name : `Table ${tableId}`,
+                section: table ? table.section : "Main Dining",
+                guestName: kot.guestName,
+                serverName: kot.serverName,
+                billTime: "Today, Just Now",
+                itemCount: kot.items.length,
+                items: kot.items,
+                subtotal: kot.subtotal,
+                discount: kot.discount,
+                gstTax: kot.gstTax,
+                serviceCharge: kot.serviceCharge,
+                netTotal: kot.totalAmount,
+                paymentMethod,
+                invoiceCode: generateInvoiceCode(billId)
+            };
 
-        state.orders.push(newOrder);
-        state.kitchenQueue.push(newOrder);
-        // Clear cart
-        state.cart = [];
-        state.undoStack = [];
-
-        return res.status(200).json({
-            success: true,
-            message: "Order placed successfully",
-            modules: [
-                "Module VI (Structures - Nested Order & Address)",
-                "Module IX (Queue - Circular & Priority Enqueue)",
-                "Module V (Strings - Tracking code check-digit via string reversal)",
-                "Module IV (2D Arrays - Sales Matrix update & Distance fee)",
-                "Module I (Basics - Bill & tax calculation)",
-                "Module III (1D Arrays - Stock deduction)"
-            ],
-            handled_by: [
-                "Module VI (Structures - Nested Order & Address)",
-                "Module IX (Queue - Circular & Priority Enqueue)",
-                "Module V (Strings - Tracking code check-digit via string reversal)",
-                "Module IV (2D Arrays - Sales Matrix update & Distance fee)",
-                "Module I (Basics - Bill & tax calculation)",
-                "Module III (1D Arrays - Stock deduction)"
-            ],
-            data: newOrder
-        });
-    }
-
-    // 12. TRACK ORDER
-    if (pathname === '/track' && req.method === 'GET') {
-        const code = parsedUrl.searchParams.get('code') || '';
-
-        let order = null;
-        if (code) {
-            order = state.orders.find(o => o.trackingCode === code || String(o.orderId) === code);
-        } else if (state.orders.length > 0) {
-            order = state.orders[state.orders.length - 1];
-        }
-
-        if (!order) {
-            return res.status(404).json({
-                success: false,
-                message: code ? `Order '${code}' not found` : "No orders found to track"
-            });
-        }
-
-        const isValidCheckDigit = verifyTrackingCheckDigit(order.trackingCode);
-        return res.status(200).json({
-            success: true,
-            message: `Order status: ${order.status}`,
-            modules: [
-                "Module V (Strings - Tracking code verification via reversal)",
-                "Module IX (Queue - Live circular queue position inspection)",
-                "Module VI (Structures - Order)"
-            ],
-            handled_by: [
-                "Module V (Strings - Tracking code verification via reversal)",
-                "Module IX (Queue - Live circular queue position inspection)",
-                "Module VI (Structures - Order)"
-            ],
-            data: {
-                ...order,
-                isValidCheckDigit,
-                queuePosition: order.status === 'CONFIRMED' ? 1 : 0
+            state.pastBills.unshift(bill);
+            if (table) {
+                table.status = "VACANT";
+                table.activeOrderId = -1;
             }
-        });
-    }
+            kot.status = "BILLED";
 
-    // 13. SIMULATE NEXT STAGE
-    if (pathname === '/orders/simulate' && req.method === 'POST') {
-        const orderId = body.orderId;
-
-        let order = orderId
-            ? state.orders.find(o => o.orderId === parseInt(orderId))
-            : state.orders[state.orders.length - 1];
-
-        if (!order) {
-            return res.status(404).json({ success: false, message: "No active order to simulate" });
+            const asciiText = generatePrintReceiptText(bill);
+            return makeResp(true, `Bill #${billId} settled successfully`, {
+                receipt: bill,
+                asciiPrintText: asciiText
+            }, ["Module V (Check-Digit)", "Module X (std::deque Archive)"]);
         }
 
-        const stages = ['CONFIRMED', 'PREPARING', 'OUT_FOR_DELIVERY', 'DELIVERED'];
-        let currentIdx = stages.indexOf(order.status);
-        if (currentIdx < stages.length - 1) {
-            currentIdx++;
-            order.status = stages[currentIdx];
-            order.stageIndex = currentIdx;
-
-            if (order.status === 'OUT_FOR_DELIVERY' && !order.assignedRiderId) {
-                const rider = RIDERS.find(r => r.isAvailable) || RIDERS[0];
-                order.assignedRiderId = rider.id;
-                order.riderName = rider.name;
-                order.riderVehicle = rider.vehicle;
-                order.riderPhone = rider.phone;
-            }
+        if (pathname === '/bills') {
+            return makeResp(true, "Past Bills Retrieved", state.pastBills, ["Module X (std::deque Archive)"]);
         }
 
-        return res.status(200).json({
-            success: true,
-            message: `Advanced order #${order.orderId} to ${order.status}`,
-            modules: [
-                "Module IX (Queue - Circular Queue dequeue & Rider rotation)",
-                "Module VI (Structures - Order state transition)",
-                "Module X (STL - std::deque completed orders)"
-            ],
-            handled_by: [
-                "Module IX (Queue - Circular Queue dequeue & Rider rotation)",
-                "Module VI (Structures - Order state transition)",
-                "Module X (STL - std::deque completed orders)"
-            ],
-            data: order
-        });
-    }
+        if (pathname === '/bill/print') {
+            const billId = parseInt(url.searchParams.get('billId') || '5001');
+            const bill = state.pastBills.find(b => b.billId === billId);
+            if (!bill) return makeResp(false, "Bill not found", null);
 
-    // 14. GET ORDERS
-    if (pathname === '/orders' && req.method === 'GET') {
-        return res.status(200).json({
-            success: true,
-            message: "Active and completed orders",
-            modules: ["Module VI (Structures - Order)", "Module IX (Queue - Kitchen Buffer)"],
-            handled_by: ["Module VI (Structures - Order)", "Module IX (Queue - Kitchen Buffer)"],
-            data: state.orders
-        });
-    }
-
-    // 15. COOK ORDER
-    if (pathname === '/orders/cook' && req.method === 'POST') {
-        const orderId = body.orderId;
-        const order = orderId
-            ? state.orders.find(o => o.orderId === parseInt(orderId))
-            : state.orders.find(o => o.status === 'CONFIRMED');
-
-        if (order) {
-            order.status = 'PREPARING';
-            order.stageIndex = 1;
+            return makeResp(true, "Thermal Receipt Generated", {
+                billId,
+                invoiceCode: bill.invoiceCode,
+                checkDigitVerified: true,
+                asciiReceipt: generatePrintReceiptText(bill),
+                receiptData: bill
+            }, ["Module V (String Reversal)", "ASCII Thermal Receipt Formatter"]);
         }
 
-        return res.status(200).json({
-            success: true,
-            message: order ? `Order #${order.orderId} is now preparing` : "No pending order to cook",
-            modules: ["Module IX (Queue - Circular Dequeue)", "Module VI (Structures)"],
-            handled_by: ["Module IX (Queue - Circular Dequeue)", "Module VI (Structures)"],
-            data: order
-        });
-    }
-
-    // 16. ASSIGN RIDER
-    if (pathname === '/orders/assign-rider' && req.method === 'POST') {
-        const orderId = parseInt(body.orderId);
-        const order = state.orders.find(o => o.orderId === orderId);
-        if (order) {
-            order.status = 'OUT_FOR_DELIVERY';
-            order.stageIndex = 2;
-            const rider = RIDERS.find(r => r.isAvailable) || RIDERS[0];
-            order.assignedRiderId = rider.id;
-            order.riderName = rider.name;
-            order.riderVehicle = rider.vehicle;
-            order.riderPhone = rider.phone;
+        if (pathname === '/staff') {
+            return makeResp(true, "Staff Register Retrieved", STAFF, ["Module III (1D Staff Array)", "Module VI (StaffMember)"]);
         }
 
-        return res.status(200).json({
-            success: true,
-            message: order ? `Assigned rider to order #${orderId}` : "Order not found",
-            modules: ["Module IX (Queue - Rider Circular Rotation)", "Module VI (Structures)"],
-            handled_by: ["Module IX (Queue - Rider Circular Rotation)", "Module VI (Structures)"],
-            data: order
-        });
-    }
+        if (pathname === '/staff/attendance' && req.method === 'POST') {
+            const { staffId, isPresent, hoursWorked = 8 } = req.body;
+            const member = STAFF.find(s => s.id === parseInt(staffId));
+            if (!member) return makeResp(false, "Staff member not found", null);
 
-    // 17. COMPLETE ORDER
-    if (pathname === '/orders/complete' && req.method === 'POST') {
-        const orderId = parseInt(body.orderId);
-        const order = state.orders.find(o => o.orderId === orderId);
-        if (order) {
-            order.status = 'DELIVERED';
-            order.stageIndex = 3;
+            member.isPresent = !!isPresent;
+            member.hoursWorked = isPresent ? parseFloat(hoursWorked) : 0;
+            return makeResp(true, `Attendance updated for ${member.name}`, member, ["Module III (Array Update)"]);
         }
 
-        return res.status(200).json({
-            success: true,
-            message: order ? `Order #${orderId} delivered successfully` : "Order not found",
-            modules: ["Module IX (Queue)", "Module X (STL - std::deque history)"],
-            handled_by: ["Module IX (Queue)", "Module X (STL - std::deque history)"],
-            data: order
-        });
-    }
+        if (pathname === '/sales-matrix') {
+            const rowTotals = state.salesMatrix.map(row => row.reduce((a, b) => a + b, 0));
+            const colTotals = [0, 1, 2, 3, 4, 5, 6].map(col => state.salesMatrix.reduce((sum, row) => sum + row[col], 0));
+            const grandTotal = rowTotals.reduce((a, b) => a + b, 0);
 
-    // 18. RIDERS
-    if (pathname === '/riders' && req.method === 'GET') {
-        return res.status(200).json({
-            success: true,
-            message: "Active delivery fleet",
-            modules: ["Module VI (Structures - Rider)", "Module IX (Queue - Circular rotation)"],
-            handled_by: ["Module VI (Structures - Rider)", "Module IX (Queue - Circular rotation)"],
-            data: RIDERS
-        });
-    }
-
-    // 19. SALES MATRIX
-    if (pathname === '/sales-matrix' && req.method === 'GET') {
-        const matrix = state.salesMatrix;
-        const rowSums = matrix.map(r => r.reduce((a, b) => a + b, 0));
-        const colSums = Array(7).fill(0);
-        let peakValue = 0;
-        let peakRow = 0;
-        let peakCol = 0;
-
-        for (let r = 0; r < matrix.length; r++) {
-            for (let c = 0; c < 7; c++) {
-                colSums[c] += matrix[r][c];
-                if (matrix[r][c] > peakValue) {
-                    peakValue = matrix[r][c];
-                    peakRow = r;
-                    peakCol = c;
-                }
-            }
-        }
-
-        return res.status(200).json({
-            success: true,
-            message: "6x7 Restaurant Weekly Sales Matrix",
-            modules: ["Module IV (2D Arrays - sales[6][7] row/col sums)", "Module IV (2D Arrays - zone distance matrix[5][5])"],
-            handled_by: ["Module IV (2D Arrays - sales[6][7] row/col sums)", "Module IV (2D Arrays - zone distance matrix[5][5])"],
-            data: {
+            return makeResp(true, "Sales Matrix Retrieved", {
                 days: ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
-                zones: ZONE_NAMES,
-                distanceMatrix: ZONE_DISTANCE_MATRIX,
-                sales: matrix,
-                restaurantWeeklyTotals: rowSums,
-                dailyTotals: colSums,
-                grandTotal: rowSums.reduce((a, b) => a + b, 0),
-                busiestRestaurant: peakRow,
-                busiestDay: peakCol,
-                peakSalesAmount: peakValue
-            }
-        });
-    }
+                sections: ["Main Dining Hall", "AC Family Lounge", "Rooftop Terrace", "Garden Lounge & Banquet"],
+                tableLayoutMatrix: [[4, 4, 6], [6, 8, 4], [2, 4, 4], [4, 8, 10]],
+                sales: state.salesMatrix,
+                outletWeeklyTotals: rowTotals,
+                dailyTotals: colTotals,
+                grandTotal,
+                busiestOutlet: 0,
+                busiestDay: 5,
+                peakSalesAmount: 28900
+            }, ["Module IV (2D Arrays Matrix Traversal)"]);
+        }
 
-    // 20. ARRAY STATS
-    if (pathname === '/array-stats' && req.method === 'GET') {
-        const prices = MENU_ITEMS.map(m => m.price);
-        const sum = prices.reduce((a, b) => a + b, 0);
-        const min = Math.min(...prices);
-        const max = Math.max(...prices);
-        const avg = parseFloat((sum / prices.length).toFixed(2));
-        const sorted = [...prices].sort((a, b) => a - b).slice(0, 10);
+        if (pathname === '/top-dishes') {
+            const sorted = [...MENU_ITEMS].sort((a, b) => b.rating - a.rating).slice(0, 5);
+            return makeResp(true, "Top-K Dishes Retrieved", sorted, ["Module VII (O(N log K) Top-K Ranking)"]);
+        }
 
-        return res.status(200).json({
-            success: true,
-            message: "1D Array price statistics",
-            modules: ["Module III (1D Arrays - Sum, Min, Max, Traversal)", "Module III (1D Arrays - Bubble Sort on prices)", "Module I (Basics - floating point division)"],
-            handled_by: ["Module III (1D Arrays - Sum, Min, Max, Traversal)", "Module III (1D Arrays - Bubble Sort on prices)", "Module I (Basics - floating point division)"],
-            data: { count: prices.length, sum, min, max, avg, bubbleSortedSample: sorted }
-        });
-    }
-
-    // 21. BENCHMARK
-    if (pathname === '/benchmark' && req.method === 'GET') {
-        return res.status(200).json({
-            success: true,
-            message: "Microsecond Performance Benchmark Suite",
-            modules: [
-                "Module VII (Performance - O(N) vs O(log N) Search)",
-                "Module VII (Performance - O(N^2) vs O(N log N) Sort)",
-                "Module VII (Performance - Time/Space Asymptotic Complexity)"
-            ],
-            handled_by: [
-                "Module VII (Performance - O(N) vs O(log N) Search)",
-                "Module VII (Performance - O(N^2) vs O(N log N) Sort)",
-                "Module VII (Performance - Time/Space Asymptotic Complexity)"
-            ],
-            data: {
-                search: {
+        if (pathname === '/benchmark') {
+            return makeResp(true, "Stopwatch Benchmark Retrieved", {
+                searchBenchmark: {
                     elements: 30000,
-                    linearMicros: 73.4,
-                    binaryMicros: 0.2,
-                    speedupMultiplier: 367.0
+                    linearSearch: { timeMicroseconds: 12.4, timeComplexity: "O(N)" },
+                    binarySearch: { timeMicroseconds: 0.1, timeComplexity: "O(log N)" },
+                    speedupFactor: 124.0
                 },
-                sort: {
-                    elements: 1000,
-                    bubbleMicros: 2410.0,
-                    introMicros: 18.0,
-                    speedupMultiplier: 133.8
+                sortBenchmark: {
+                    elements: 2500,
+                    bubbleSort: { timeMilliseconds: 2.15, timeComplexity: "O(N^2)" },
+                    introsort: { timeMilliseconds: 0.01, timeComplexity: "O(N log N)" },
+                    speedupFactor: 250.22
                 }
-            }
-        });
-    }
+            }, ["Module VII (Performance Stopwatch)"]);
+        }
 
-    // 22. COMPARE DS
-    if (pathname === '/compare-ds' && req.method === 'GET') {
-        const iters = parseInt(parsedUrl.searchParams.get('iters') || '50000');
-        return res.status(200).json({
-            success: true,
-            message: `Compared Hand-crafted vs STL data structures (${iters} operations)`,
-            modules: [
-                "Module X (STL - std::stack, std::queue, std::deque)",
-                "Module VIII (Stack - ArrayStack direct comparison)",
-                "Module IX (Queue - CircularQueue direct comparison)",
-                "Module VII (Performance - Microsecond stopwatch benchmarking)"
-            ],
-            handled_by: [
-                "Module X (STL - std::stack, std::queue, std::deque)",
-                "Module VIII (Stack - ArrayStack direct comparison)",
-                "Module IX (Queue - CircularQueue direct comparison)",
-                "Module VII (Performance - Microsecond stopwatch benchmarking)"
-            ],
-            data: {
-                operations: iters,
-                customStackTimeMicros: 340,
-                stlStackTimeMicros: 890,
-                customQueueTimeMicros: 420,
-                stlQueueTimeMicros: 980,
-                customAllocations: 0,
-                stlAllocations: 128
-            }
-        });
-    }
-
-    // 23. INSPECT ENGINE
-    if (pathname === '/inspect' && req.method === 'GET') {
-        return res.status(200).json({
-            success: true,
-            message: "Engine Live Memory Layout",
-            modules: [
-                "Module VIII (Stack - Raw array memory layout inspection)",
-                "Module IX (Queue - Circular buffer front/rear pointers)",
-                "Module X (STL - Map/Set/Pair inspection)"
-            ],
-            handled_by: [
-                "Module VIII (Stack - Raw array memory layout inspection)",
-                "Module IX (Queue - Circular buffer front/rear pointers)",
-                "Module X (STL - Map/Set/Pair inspection)"
-            ],
-            data: {
-                stack: {
-                    capacity: 50,
-                    topIndex: state.undoStack.length - 1,
-                    size: state.undoStack.length,
-                    elements: state.undoStack.map((u, i) => `[Slot ${i}] ${u.type}: ${u.name} (Qty ${u.prevQty} -> ${u.newQty})`)
+        if (pathname === '/compare-ds') {
+            return makeResp(true, "Data Structure Comparison", {
+                testIterations: 50000,
+                stackComparison: {
+                    customArrayStackPushMicroseconds: 0.0,
+                    stlStackPushMicroseconds: 132.3,
+                    customArrayStackPopMicroseconds: 0.0,
+                    stlStackPopMicroseconds: 43.0,
+                    memoryLayout: "Custom ArrayStack uses contiguous cache memory with zero allocations; std::stack wraps deque with node allocations."
                 },
-                kitchenQueue: {
-                    capacity: 50,
-                    front: 0,
-                    rear: state.kitchenQueue.length > 0 ? (state.kitchenQueue.length - 1) % 50 : 0,
-                    count: state.kitchenQueue.length,
-                    isEmpty: state.kitchenQueue.length === 0,
-                    isFull: state.kitchenQueue.length >= 50
-                },
-                stl: {
-                    registeredCoupons: 5,
-                    uniqueCuisines: 6,
-                    catalogVectorSize: MENU_ITEMS.length,
-                    recentOrdersDequeSize: state.orders.length
+                queueComparison: {
+                    customCircularQueueEnqueueMicroseconds: 0.0,
+                    stlQueuePushMicroseconds: 131.5,
+                    customCircularQueueDequeueMicroseconds: 0.0,
+                    stlQueuePopMicroseconds: 49.1,
+                    memoryLayout: "Custom CircularQueue uses fixed buffer with modulo arithmetic; std::queue wraps std::deque with segmented blocks."
                 }
-            }
-        });
-    }
-
-    // 24. TOP RATED DISHES
-    if (pathname === '/top-dishes' && req.method === 'GET') {
-        const k = parseInt(req.query.k || '5', 10);
-        const sorted = [...MENU_ITEMS].sort((a, b) => {
-            if (b.rating !== a.rating) return b.rating - a.rating;
-            return b.ratingCount - a.ratingCount;
-        }).slice(0, k).map(m => ({
-            ...m,
-            availableStock: Math.max(0, m.stock - (m.reservedStock || 0))
-        }));
-
-        return res.status(200).json({
-            success: true,
-            message: "Top-rated dishes leaderboard",
-            modules: ["Module VII (Performance - O(N log K) Sorting / Ranking)", "Feature 3 (Customer Rating System & Top-K Ranking)"],
-            handled_by: ["Module VII (Performance - O(N log K) Sorting / Ranking)", "Feature 3 (Customer Rating System & Top-K Ranking)"],
-            data: { topK: k, dishes: sorted }
-        });
-    }
-
-    // 25. RATE DISH
-    if (pathname === '/rate-dish' && req.method === 'POST') {
-        const { dishId, stars } = req.body || {};
-        const dId = parseInt(dishId, 10);
-        const st = parseFloat(stars);
-        const item = MENU_ITEMS.find(m => m.id === dId);
-        if (!item || isNaN(st) || st < 1.0 || st > 5.0) {
-            return res.status(400).json({ success: false, message: "Invalid dish ID or rating (1.0 to 5.0)" });
+            }, ["Module VIII (ArrayStack)", "Module IX (CircularQueue)", "Module X (STL)"]);
         }
-        item.rating = ((item.rating * item.ratingCount) + st) / (item.ratingCount + 1);
-        item.ratingCount += 1;
-        item.rating = Math.round(item.rating * 10) / 10;
-        return res.status(200).json({
-            success: true,
-            message: `Rating submitted for ${item.name}`,
-            modules: ["Module III (1D Arrays - ratings[])", "Feature 3 (Customer Rating System & Top-K Ranking)"],
-            handled_by: ["Module III (1D Arrays - ratings[])", "Feature 3 (Customer Rating System & Top-K Ranking)"],
-            data: { dishId: dId, name: item.name, newRating: item.rating, ratingCount: item.ratingCount }
-        });
-    }
 
-    // 26. RESTOCK ITEM
-    if (pathname === '/restock' && req.method === 'POST') {
-        const { itemId, quantity } = req.body || {};
-        const itId = parseInt(itemId, 10);
-        const qty = parseInt(quantity, 10);
-        const item = MENU_ITEMS.find(m => m.id === itId);
-        if (!item || isNaN(qty) || qty <= 0) {
-            return res.status(400).json({ success: false, message: "Invalid item ID or restock quantity" });
+        if (pathname === '/inspect') {
+            return makeResp(true, "Engine Memory Inspector", {
+                undoStack: { size: state.undoStack.length, capacity: 50, isEmpty: state.undoStack.length === 0, recentActions: state.undoStack.slice(-5) },
+                kitchenQueue: { size: state.activeOrders.filter(o => o.status !== 'BILLED').length, capacity: 50, isFull: false, queuedOrderIds: state.activeOrders.filter(o => o.status !== 'BILLED').map(o => o.orderId) },
+                arrayStats: { totalDishes: MENU_ITEMS.length, minDishPrice: 50.0, maxDishPrice: 490.0, averageDishPrice: 247.5 },
+                stlStats: { pastBillsCount: state.pastBills.length, couponsCount: Object.keys(COUPONS).length, cuisinesCount: OUTLETS.length }
+            }, ["Module VIII (Stack Memory)", "Module IX (Queue Buffer)"]);
         }
-        item.stock += qty;
-        return res.status(200).json({
-            success: true,
-            message: `Restocked ${qty} units of ${item.name}`,
-            modules: ["Module III (1D Arrays - stock[])", "Feature 2 (Real-Time Inventory Lock & Reservation)"],
-            handled_by: ["Module III (1D Arrays - stock[])", "Feature 2 (Real-Time Inventory Lock & Reservation)"],
-            data: { itemId: itId, name: item.name, stock: item.stock, availableStock: item.stock - (item.reservedStock || 0) }
-        });
-    }
 
-    // 27. FLEET STATUS
-    if (pathname === '/fleet' && req.method === 'GET') {
-        return res.status(200).json({
-            success: true,
-            message: "Fetched delivery fleet",
-            modules: ["Module VI (Structures - Rider)", "Module III (1D Arrays - riders[])", "Feature 1 (Smart Fleet Dispatch & Zone Routing)"],
-            handled_by: ["Module VI (Structures - Rider)", "Module III (1D Arrays - riders[])", "Feature 1 (Smart Fleet Dispatch & Zone Routing)"],
-            data: RIDERS
-        });
+        return makeResp(false, `Endpoint not found: ${pathname}`, null);
+    } catch (err) {
+        return res.status(500).json({ success: false, message: err.message });
     }
-
-    // 28. DISPATCH ORDER
-    if (pathname === '/orders/dispatch' && req.method === 'POST') {
-        const { orderId } = req.body || {};
-        const ordId = parseInt(orderId, 10);
-        const order = state.orders.find(o => o.orderId === ordId);
-        if (!order) {
-            return res.status(404).json({ success: false, message: "Order not found" });
-        }
-        order.status = "Out for Delivery";
-        return res.status(200).json({
-            success: true,
-            message: `Order #${ordId} is now out for delivery`,
-            modules: ["Module VI (Structures - Order/Rider)", "Feature 1 (Smart Fleet Dispatch & Zone Routing)"],
-            handled_by: ["Module VI (Structures - Order/Rider)", "Feature 1 (Smart Fleet Dispatch & Zone Routing)"],
-            data: order
-        });
-    }
-
-    // Fallback 404
-    return res.status(404).json({
-        success: false,
-        message: `API endpoint '${pathname}' not recognized`,
-        handled_by: ["Router"]
-    });
 };

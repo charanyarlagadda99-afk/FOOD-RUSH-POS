@@ -1,6 +1,6 @@
 // ============================================================================
-// FoodRush - Comprehensive Smoke Test Suite
-// Verifies all 10 CS Syllabus Modules end-to-end on Upgraded Engine
+// FoodRush POS - Comprehensive Smoke Test Suite
+// Verifies Restaurant & Hotel POS backend and CS Syllabus Modules I-X
 // ============================================================================
 
 const { spawn } = require('child_process');
@@ -10,35 +10,34 @@ const readline = require('readline');
 const ENGINE_PATH = path.join(__dirname, '..', 'foodrush_engine.exe');
 
 console.log('================================================================');
-console.log('       FOODRUSH UPGRADED ENGINE END-TO-END VERIFICATION         ');
+console.log('      FOODRUSH RESTAURANT & HOTEL POS ENGINE TEST SUITE         ');
 console.log('================================================================\n');
 
 const testCommands = [
-    { cmd: 'PING', expectedMod: 'Module I', desc: 'Basics & Protocol' },
-    { cmd: 'GET_RESTAURANTS', expectedMod: 'Module VI', desc: '6 Restaurants & 1D Array' },
-    { cmd: 'GET_MENU 1', expectedMod: 'Module I', desc: '8 Dishes per Kitchen & Bitwise Dietary Flags' },
-    { cmd: 'SEARCH_DISH biryani', expectedMod: 'Module V', desc: 'Case-Insensitive Substring Match' },
-    { cmd: 'SEARCH_DISH biryany', expectedMod: 'Module V', desc: 'Levenshtein "Did You Mean" Fuzzy Search' },
-    { cmd: 'CART_ADD 101 2', expectedMod: 'Module VIII', desc: 'ArrayStack Push on Cart Action' },
-    { cmd: 'CART_VIEW 0 1', expectedMod: 'Module IV', desc: '2D Zone Distance Fee & INR Bill Calculation' },
-    { cmd: 'CART_UNDO', expectedMod: 'Module VIII', desc: 'ArrayStack Pop & Reversion' },
-    { cmd: 'CART_ADD 101 1', expectedMod: 'Module VIII', desc: 'Re-add Item for Order' },
-    { cmd: 'APPLY_COUPON FIRST50', expectedMod: 'Module X', desc: 'std::map Coupon Discount Lookup' },
-    { cmd: 'APPLY_COUPON LEVEL', expectedMod: 'Module V', desc: 'Palindrome Bonus using String Reversal' },
-    { cmd: 'CHECKOUT Aarav 0 MG_Road 1', expectedMod: 'Module IX', desc: 'Order Struct, Check-Digit & Priority Queue' },
-    { cmd: 'TRACK_ORDER 1001', expectedMod: 'Module V', desc: 'Tracking Code Check Digit Verification' },
-    { cmd: 'SIMULATE_NEXT_STAGE 1001', expectedMod: 'Module IX', desc: 'Circular Queue Stage: PLACED -> PREPARING' },
-    { cmd: 'SIMULATE_NEXT_STAGE 1001', expectedMod: 'Module IX', desc: 'Circular Queue Dequeue & Rider Rotation' },
-    { cmd: 'SIMULATE_NEXT_STAGE 1001', expectedMod: 'Module X', desc: 'Delivery Completion & STL Deque Record' },
-    { cmd: 'GET_SALES_MATRIX', expectedMod: 'Module IV', desc: '6x7 Sales Revenue Matrix & Peak Analysis' },
-    { cmd: 'GET_ARRAY_STATS', expectedMod: 'Module III', desc: '1D Arrays: Sum, Min, Max & Bubble Sort' },
-    { cmd: 'BENCHMARK', expectedMod: 'Module VII', desc: 'Performance: Linear vs Binary, Bubble vs Introsort' },
-    { cmd: 'COMPARE_DS 10000', expectedMod: 'Module X', desc: 'Custom ArrayStack/Queue vs STL stack/queue' },
-    { cmd: 'GET_FLEET_STATUS', expectedMod: 'Feature 1', desc: 'Smart Fleet Dispatch & Zone Routing' },
-    { cmd: 'RESTOCK_ITEM 101 25', expectedMod: 'Feature 2', desc: 'Real-Time Inventory Lock & Restocking' },
-    { cmd: 'RATE_DISH 101 5.0', expectedMod: 'Feature 3', desc: 'Customer Rating Feedback System' },
-    { cmd: 'GET_TOP_DISHES 5', expectedMod: 'Feature 3', desc: 'Top-K Leaderboard via O(N log K) Sorting' },
-    { cmd: 'INSPECT_ENGINE', expectedMod: 'Module VIII', desc: 'Engine Live Memory Inspector' }
+    { cmd: 'GET_INITIAL_STATE', expectedMod: 'Module I', desc: 'System Initial State & Tables' },
+    { cmd: 'GET_OUTLETS', expectedMod: 'Module III', desc: '6 Kitchen Outlets & 1D Array' },
+    { cmd: 'GET_MENU 1', expectedMod: 'Module III', desc: 'Grand Mughal Dishes (8 per outlet)' },
+    { cmd: 'GET_TABLES', expectedMod: 'Module VI', desc: '12 Dining Tables Status' },
+    { cmd: 'SELECT_TABLE 3', expectedMod: 'Module I', desc: 'Select Dining Table 3' },
+    { cmd: 'ORDER_ADD 101 2 3', expectedMod: 'Module VIII', desc: 'Add 2x Biryani (ArrayStack Push)' },
+    { cmd: 'ORDER_VIEW 3', expectedMod: 'Module I', desc: 'View Table 3 Totals & GST' },
+    { cmd: 'ORDER_UNDO 3', expectedMod: 'Module VIII', desc: 'Undo Modification (ArrayStack Pop)' },
+    { cmd: 'ORDER_ADD 101 1 3', expectedMod: 'Module VIII', desc: 'Re-add 1x Biryani to Table 3' },
+    { cmd: 'APPLY_COUPON WELCOME10 3', expectedMod: 'Module X', desc: 'Apply Promo Coupon (std::map)' },
+    { cmd: 'SUBMIT_KOT Rohit 1 3', expectedMod: 'Module IX', desc: 'Dispatch Express KOT to Circular Queue' },
+    { cmd: 'GET_ACTIVE_ORDERS', expectedMod: 'Module IX', desc: 'Live Multi-Order Kitchen Queue' },
+    { cmd: 'UPDATE_ORDER_STAGE 1004 PREPARING', expectedMod: 'Module IX', desc: 'Advance KOT to PREPARING' },
+    { cmd: 'GENERATE_BILL 3 UPI WELCOME10', expectedMod: 'Module V', desc: 'Settle Bill & Reversal Check-Digit' },
+    { cmd: 'GET_BILLS', expectedMod: 'Module X', desc: 'Archived Past Bills (std::deque)' },
+    { cmd: 'PRINT_BILL 5001', expectedMod: 'Module V', desc: 'Format Thermal Receipt & Validate Code' },
+    { cmd: 'GET_STAFF', expectedMod: 'Module III', desc: '8 Staff Attendance & Shifts' },
+    { cmd: 'MARK_ATTENDANCE 1 1 8.5', expectedMod: 'Module III', desc: 'Update Staff Clock-In & Hours' },
+    { cmd: 'SEARCH_DISHES Biryani', expectedMod: 'Module V', desc: 'Levenshtein Search & Char Frequency' },
+    { cmd: 'GET_SALES_MATRIX', expectedMod: 'Module IV', desc: '6x7 Sales Matrix & Peak Slot Analysis' },
+    { cmd: 'GET_TOP_DISHES 5', expectedMod: 'Module VII', desc: 'Top-K Leaderboard via O(N log K) Sort' },
+    { cmd: 'BENCHMARK', expectedMod: 'Module VII', desc: 'Stopwatch: Linear vs Binary, Bubble vs Introsort' },
+    { cmd: 'COMPARE_DS', expectedMod: 'Module X', desc: 'Live Custom ArrayStack/Queue vs STL' },
+    { cmd: 'INSPECT_ENGINE', expectedMod: 'Module VIII', desc: 'Engine Live Memory Buffer Inspector' }
 ];
 
 async function runSmokeTest() {
@@ -81,7 +80,7 @@ async function runSmokeTest() {
         const ok = res.success && hasMod;
 
         if (ok) {
-            console.log(`[PASS] (${i+1}/${testCommands.length}) ${t.cmd.padEnd(30)} | ${t.desc} -> [${modules.join(', ')}]`);
+            console.log(`[PASS] (${i+1}/${testCommands.length}) ${t.cmd.padEnd(32)} | ${t.desc} -> [${modules.join(', ')}]`);
             passed++;
         } else {
             console.error(`[FAIL] (${i+1}/${testCommands.length}) ${t.cmd} -> ${JSON.stringify(res)}`);
@@ -94,7 +93,7 @@ async function runSmokeTest() {
 
     console.log('\n----------------------------------------------------------------');
     console.log(`Smoke Test Results: ${passed} Passed, ${failed} Failed`);
-    console.log('All 10 Syllabus Modules Verified Operational on Upgraded Engine!');
+    console.log('All 10 Syllabus Modules & POS Subsystems Verified Operational!');
     console.log('----------------------------------------------------------------\n');
 
     process.exit(failed > 0 ? 1 : 0);

@@ -1,6 +1,7 @@
 // ============================================================================
-// FoodRush - Node.js Persistent Bridge Server
+// FoodRush / RestoRush - Node.js Persistent Bridge Server
 // Connects the Web UI to the persistent C++ Engine via stdin/stdout line protocol
+// Supports: Dine-In Tables, Multi-Order Kitchen Board, Bills & Printing, Staff Attendance
 // ============================================================================
 
 const http = require('http');
@@ -15,7 +16,7 @@ const ENGINE_PATH = path.join(__dirname, '..', 'foodrush_engine.exe');
 const PUBLIC_DIR = path.join(__dirname, '..', 'public');
 
 console.log('============================================================');
-console.log('FoodRush Persistent Bridge Server');
+console.log('FoodRush POS Persistent Bridge Server');
 console.log(`Target C++ Engine Binary: ${ENGINE_PATH}`);
 console.log('============================================================');
 
@@ -119,228 +120,221 @@ const server = http.createServer(async (req, res) => {
         res.setHeader('Content-Type', 'application/json; charset=utf-8');
 
         try {
-            if (pathname === '/api/ping' && req.method === 'GET') {
-                const resp = await sendEngineCommand('PING');
+            // Initial State & Overview
+            if ((pathname === '/api/initial-state' || pathname === '/api/ping') && req.method === 'GET') {
+                const resp = await sendEngineCommand('GET_INITIAL_STATE');
                 res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
+                return res.end(JSON.stringify(resp));
             }
 
-            if (pathname === '/api/restaurants' && req.method === 'GET') {
-                const resp = await sendEngineCommand('GET_RESTAURANTS');
+            // Kitchen Outlets / Restaurants
+            if ((pathname === '/api/restaurants' || pathname === '/api/outlets') && req.method === 'GET') {
+                const resp = await sendEngineCommand('GET_OUTLETS');
                 res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
+                return res.end(JSON.stringify(resp));
             }
 
+            // Menu Items (supports ?outletId= or ?restaurantId=)
             if (pathname === '/api/menu' && req.method === 'GET') {
-                const restId = parsedUrl.searchParams.get('restaurantId') || '0';
-                const resp = await sendEngineCommand(`GET_MENU ${restId}`);
+                const outletId = parsedUrl.searchParams.get('restaurantId') || parsedUrl.searchParams.get('outletId') || '0';
+                const resp = await sendEngineCommand(`GET_MENU ${outletId}`);
                 res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
+                return res.end(JSON.stringify(resp));
             }
 
-            if (pathname === '/api/search' && req.method === 'GET') {
-                const query = parsedUrl.searchParams.get('q') || '';
-                const resp = await sendEngineCommand(`SEARCH_DISH ${query}`);
+            // Dining Tables Status
+            if (pathname === '/api/tables' && req.method === 'GET') {
+                const resp = await sendEngineCommand('GET_TABLES');
                 res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
+                return res.end(JSON.stringify(resp));
             }
 
-            if (pathname === '/api/cart' && req.method === 'GET') {
-                const zone = parsedUrl.searchParams.get('zone') || '0';
-                const express = parsedUrl.searchParams.get('express') || '0';
-                const resp = await sendEngineCommand(`CART_VIEW ${zone} ${express}`);
-                res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
-            }
-
-            if (pathname === '/api/cart/add' && req.method === 'POST') {
+            // Switch Active Table
+            if (pathname === '/api/tables/select' && req.method === 'POST') {
                 const data = await readJsonBody(req);
-                const resp = await sendEngineCommand(`CART_ADD ${data.itemId} ${data.quantity || 1}`);
+                const resp = await sendEngineCommand(`SELECT_TABLE ${data.tableId || 1}`);
                 res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
+                return res.end(JSON.stringify(resp));
             }
 
-            if (pathname === '/api/cart/remove' && req.method === 'POST') {
+            // View Draft Table Order / Cart
+            if ((pathname === '/api/cart' || pathname === '/api/order/current') && req.method === 'GET') {
+                const tableId = parsedUrl.searchParams.get('tableId') || '1';
+                const resp = await sendEngineCommand(`ORDER_VIEW ${tableId}`);
+                res.writeHead(200);
+                return res.end(JSON.stringify(resp));
+            }
+
+            // Add Dish to Table Order
+            if ((pathname === '/api/cart/add' || pathname === '/api/order/add') && req.method === 'POST') {
                 const data = await readJsonBody(req);
-                const resp = await sendEngineCommand(`CART_REMOVE ${data.itemId}`);
+                const resp = await sendEngineCommand(`ORDER_ADD ${data.itemId} ${data.quantity || 1} ${data.tableId || 1}`);
                 res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
+                return res.end(JSON.stringify(resp));
             }
 
-            if (pathname === '/api/cart/undo' && req.method === 'POST') {
-                const resp = await sendEngineCommand('CART_UNDO');
+            // Remove Dish from Table Order
+            if ((pathname === '/api/cart/remove' || pathname === '/api/order/remove') && req.method === 'POST') {
+                const data = await readJsonBody(req);
+                const resp = await sendEngineCommand(`ORDER_REMOVE ${data.itemId} ${data.tableId || 1}`);
                 res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
+                return res.end(JSON.stringify(resp));
             }
 
-            if (pathname === '/api/cart/clear' && req.method === 'POST') {
-                const resp = await sendEngineCommand('CART_CLEAR');
+            // Undo Last Table Order Action (LIFO Stack)
+            if ((pathname === '/api/cart/undo' || pathname === '/api/order/undo') && req.method === 'POST') {
+                const data = await readJsonBody(req);
+                const resp = await sendEngineCommand(`ORDER_UNDO ${data.tableId || 1}`);
                 res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
+                return res.end(JSON.stringify(resp));
             }
 
+            // Clear Draft Table Order
+            if ((pathname === '/api/cart/clear' || pathname === '/api/order/clear') && req.method === 'POST') {
+                const data = await readJsonBody(req);
+                const resp = await sendEngineCommand(`ORDER_CLEAR ${data.tableId || 1}`);
+                res.writeHead(200);
+                return res.end(JSON.stringify(resp));
+            }
+
+            // Apply Coupon Discount
             if (pathname === '/api/coupon' && req.method === 'POST') {
                 const data = await readJsonBody(req);
-                const resp = await sendEngineCommand(`APPLY_COUPON ${data.code || ''}`);
+                const resp = await sendEngineCommand(`APPLY_COUPON ${data.code || ''} ${data.tableId || 1}`);
                 res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
+                return res.end(JSON.stringify(resp));
             }
 
-            if (pathname === '/api/checkout' && req.method === 'POST') {
+            // Dispatch KOT to Kitchen Queue
+            if ((pathname === '/api/kot/submit' || pathname === '/api/checkout') && req.method === 'POST') {
                 const data = await readJsonBody(req);
-                const name = (data.customerName || 'Guest').replace(/\s+/g, '_');
-                const zone = data.zoneId || 0;
-                const street = (data.street || 'MainStreet').replace(/\s+/g, '_');
+                const guest = (data.guestName || data.customerName || 'Guest').replace(/\s+/g, '_');
                 const isExpress = data.isExpress ? '1' : '0';
-                const resp = await sendEngineCommand(`CHECKOUT ${name} ${zone} ${street} ${isExpress}`);
+                const tableId = data.tableId || 1;
+                const resp = await sendEngineCommand(`SUBMIT_KOT ${guest} ${isExpress} ${tableId}`);
                 res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
+                return res.end(JSON.stringify(resp));
             }
 
-            if (pathname === '/api/track' && req.method === 'GET') {
-                const code = parsedUrl.searchParams.get('code') || '';
-                const resp = await sendEngineCommand(`TRACK_ORDER ${code}`);
+            // Live Kitchen KOT Orders Queue
+            if ((pathname === '/api/orders/active' || pathname === '/api/orders' || pathname === '/api/kot') && req.method === 'GET') {
+                const resp = await sendEngineCommand('GET_ACTIVE_ORDERS');
                 res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
+                return res.end(JSON.stringify(resp));
             }
 
-            if (pathname === '/api/orders/simulate' && req.method === 'POST') {
+            // Advance Order Stage (ORDERED -> PREPARING -> SERVED)
+            if (pathname === '/api/orders/stage' && req.method === 'POST') {
                 const data = await readJsonBody(req);
-                const cmd = data.orderId ? `SIMULATE_NEXT_STAGE ${data.orderId}` : 'SIMULATE_NEXT_STAGE';
-                const resp = await sendEngineCommand(cmd);
+                const resp = await sendEngineCommand(`UPDATE_ORDER_STAGE ${data.orderId} ${data.stage || 'PREPARING'}`);
                 res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
+                return res.end(JSON.stringify(resp));
             }
 
-            if (pathname === '/api/orders' && req.method === 'GET') {
-                const resp = await sendEngineCommand('GET_ORDERS');
-                res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
-            }
-
-            if (pathname === '/api/orders/cook' && req.method === 'POST') {
+            // Generate & Settle Bill
+            if (pathname === '/api/bill/generate' && req.method === 'POST') {
                 const data = await readJsonBody(req);
-                const cmd = data.orderId ? `COOK_ORDER ${data.orderId}` : 'COOK_ORDER';
-                const resp = await sendEngineCommand(cmd);
+                const payment = data.paymentMethod || 'UPI';
+                const coupon = data.coupon || '';
+                const resp = await sendEngineCommand(`GENERATE_BILL ${data.tableId || 1} ${payment} ${coupon}`);
                 res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
+                return res.end(JSON.stringify(resp));
             }
 
-            if (pathname === '/api/orders/assign-rider' && req.method === 'POST') {
+            // Past Bills Archive
+            if (pathname === '/api/bills' && req.method === 'GET') {
+                const resp = await sendEngineCommand('GET_BILLS');
+                res.writeHead(200);
+                return res.end(JSON.stringify(resp));
+            }
+
+            // Print Thermal Receipt ASCII
+            if (pathname === '/api/bill/print' && req.method === 'GET') {
+                const billId = parsedUrl.searchParams.get('billId') || '5001';
+                const resp = await sendEngineCommand(`PRINT_BILL ${billId}`);
+                res.writeHead(200);
+                return res.end(JSON.stringify(resp));
+            }
+
+            // Staff Attendance Register & Shifts
+            if (pathname === '/api/staff' && req.method === 'GET') {
+                const resp = await sendEngineCommand('GET_STAFF');
+                res.writeHead(200);
+                return res.end(JSON.stringify(resp));
+            }
+
+            // Mark Staff Attendance
+            if (pathname === '/api/staff/attendance' && req.method === 'POST') {
                 const data = await readJsonBody(req);
-                const resp = await sendEngineCommand(`ASSIGN_RIDER ${data.orderId}`);
+                const present = data.isPresent ? '1' : '0';
+                const hours = data.hoursWorked || '8';
+                const resp = await sendEngineCommand(`MARK_ATTENDANCE ${data.staffId} ${present} ${hours}`);
                 res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
+                return res.end(JSON.stringify(resp));
             }
 
-            if (pathname === '/api/orders/complete' && req.method === 'POST') {
-                const data = await readJsonBody(req);
-                const resp = await sendEngineCommand(`COMPLETE_ORDER ${data.orderId}`);
+            // Dish Search (Levenshtein did-you-mean, tokenizing, char frequency)
+            if (pathname === '/api/search' && req.method === 'GET') {
+                const query = parsedUrl.searchParams.get('q') || '';
+                const resp = await sendEngineCommand(`SEARCH_DISHES ${query}`);
                 res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
+                return res.end(JSON.stringify(resp));
             }
 
-            if (pathname === '/api/riders' && req.method === 'GET') {
-                const resp = await sendEngineCommand('GET_RIDERS');
-                res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
-            }
-
+            // 6 Outlets x 7 Days Weekly Sales Matrix
             if (pathname === '/api/sales-matrix' && req.method === 'GET') {
                 const resp = await sendEngineCommand('GET_SALES_MATRIX');
                 res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
+                return res.end(JSON.stringify(resp));
             }
 
-            if (pathname === '/api/array-stats' && req.method === 'GET') {
-                const resp = await sendEngineCommand('GET_ARRAY_STATS');
-                res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
-            }
-
-            if (pathname === '/api/benchmark' && req.method === 'GET') {
-                const resp = await sendEngineCommand('BENCHMARK');
-                res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
-            }
-
-            if (pathname === '/api/compare-ds' && req.method === 'GET') {
-                const iters = parsedUrl.searchParams.get('iters') || '50000';
-                const resp = await sendEngineCommand(`COMPARE_DS ${iters}`);
-                res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
-            }
-
+            // Top-K Ranked Dishes
             if (pathname === '/api/top-dishes' && req.method === 'GET') {
                 const k = parsedUrl.searchParams.get('k') || '5';
                 const resp = await sendEngineCommand(`GET_TOP_DISHES ${k}`);
                 res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
+                return res.end(JSON.stringify(resp));
             }
 
+            // Rate Dish
             if (pathname === '/api/rate-dish' && req.method === 'POST') {
                 const data = await readJsonBody(req);
-                const resp = await sendEngineCommand(`RATE_DISH ${data.dishId} ${data.stars}`);
+                const resp = await sendEngineCommand(`RATE_DISH ${data.dishId || data.itemId} ${data.stars || data.rating}`);
                 res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
+                return res.end(JSON.stringify(resp));
             }
 
+            // Restock Dish Inventory
             if (pathname === '/api/restock' && req.method === 'POST') {
                 const data = await readJsonBody(req);
                 const resp = await sendEngineCommand(`RESTOCK_ITEM ${data.itemId} ${data.quantity}`);
                 res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
+                return res.end(JSON.stringify(resp));
             }
 
-            if (pathname === '/api/fleet' && req.method === 'GET') {
-                const resp = await sendEngineCommand('GET_FLEET_STATUS');
+            // Stopwatch Performance Benchmark
+            if (pathname === '/api/benchmark' && req.method === 'GET') {
+                const resp = await sendEngineCommand('BENCHMARK');
                 res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
+                return res.end(JSON.stringify(resp));
             }
 
-            if (pathname === '/api/orders/dispatch' && req.method === 'POST') {
-                const data = await readJsonBody(req);
-                const resp = await sendEngineCommand(`DISPATCH_ORDER ${data.orderId}`);
+            // Custom ArrayStack/Queue vs STL Benchmark
+            if (pathname === '/api/compare-ds' && req.method === 'GET') {
+                const resp = await sendEngineCommand('COMPARE_DS');
                 res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
+                return res.end(JSON.stringify(resp));
             }
 
+            // Memory Inspector
             if (pathname === '/api/inspect' && req.method === 'GET') {
                 const resp = await sendEngineCommand('INSPECT_ENGINE');
                 res.writeHead(200);
-                res.end(JSON.stringify(resp));
-                return;
+                return res.end(JSON.stringify(resp));
             }
 
             res.writeHead(404);
-            res.end(JSON.stringify({ success: false, message: 'Unknown API endpoint' }));
+            res.end(JSON.stringify({ success: false, message: 'Unknown API endpoint: ' + pathname }));
             return;
         } catch (err) {
             res.writeHead(500);
@@ -363,7 +357,6 @@ const server = http.createServer(async (req, res) => {
 
     fs.stat(filePath, (err, stats) => {
         if (err || !stats.isFile()) {
-            // Fallback to index.html for SPA client-side routing
             filePath = path.join(PUBLIC_DIR, 'index.html');
         }
 
@@ -378,10 +371,13 @@ const server = http.createServer(async (req, res) => {
 
 function startServer(port) {
     server.listen(port, () => {
-        console.log(`FoodRush server running at http://localhost:${port}`);
-        console.log(`- Customer Storefront: http://localhost:${port}`);
-        console.log(`- Admin Operations:   http://localhost:${port}#admin`);
-        console.log('Press Ctrl+C to terminate.');
+        console.log(`FoodRush POS Server running at http://localhost:${port}`);
+        console.log(`- POS Cashier & Dining: http://localhost:${port}`);
+        console.log(`- Kitchen KOT Board:   http://localhost:${port}#kitchen`);
+        console.log(`- Past Bills Archive:   http://localhost:${port}#bills`);
+        console.log(`- Staff & Attendance:   http://localhost:${port}#staff`);
+        console.log(`- Sales Analytics:      http://localhost:${port}#sales`);
+        console.log(`- Examiner Mode (key V): http://localhost:${port}#viva`);
     });
 }
 

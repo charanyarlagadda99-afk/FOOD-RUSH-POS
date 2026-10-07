@@ -1,10 +1,11 @@
 // ============================================================================
-// FoodRush - High-Performance C++ Core Engine
+// FoodRush / RestoRush - Restaurant, Hotel & Cafe POS Core Engine
 // Full Implementation of CS Syllabus Modules I-X
-// + 3 Enterprise Backend Systems:
-//   1. Smart Fleet Dispatch & Zone Routing (Nearest Available Rider Allocation)
-//   2. Real-Time Inventory & Stock Lock Engine (Atomic Reservation & Restock)
-//   3. Customer Rating System & Top-K Ranking Engine (Leaderboard via Partial Sort)
+// + 3 Enterprise POS Subsystems:
+//   1. Multi-Table Dine-In Order Management & Table Turnover Lifecycle
+//   2. Real-Time Kitchen KOT Pipeline with Priority Express Lane
+//   3. Staff Attendance Register & Shift Roster Management
+// + Itemized GST Invoice & Thermal Receipt Print Generation
 // ============================================================================
 
 #include <iostream>
@@ -15,6 +16,7 @@
 #include <cmath>
 #include <cstring>
 #include <chrono>
+#include <algorithm>
 
 #include "models.hpp"
 #include "array_stack.hpp"
@@ -23,17 +25,41 @@
 #include "algorithms.hpp"
 #include "seed_data.hpp"
 
-// Global System State
-Restaurant gRestaurants[MAX_RESTAURANTS];
-int gRestaurantCount = 0;
+// ============================================================================
+// GLOBAL SYSTEM STATE & MEMORY BUFFERS
+// ============================================================================
+
+// [MODULE VI] Arrays of Structures
+RestaurantOutlet gOutlets[MAX_OUTLETS];
+int gOutletCount = 0;
 
 MenuItem gMenuItems[MAX_TOTAL_ITEMS];
 int gMenuItemCount = 0;
 
-Rider gRiders[MAX_RIDERS];
-int gRiderCount = 0;
+Table gTables[MAX_TABLES];
+int gTableCount = 0;
 
-// [MODULE VIII] Custom Array-based Stack for Cart Undo History
+StaffMember gStaff[MAX_STAFF];
+int gStaffCount = 0;
+
+// Active ordering table (default: Table 1)
+int gActiveTableId = 1;
+
+// Draft order items per table (1-indexed for tables 1 to 12)
+struct TableCart {
+    OrderItem items[MAX_ORDER_ITEMS];
+    int itemCount;
+    std::string guestName;
+    std::string couponCode;
+    double discountPercent;
+    double discountFlat;
+
+    TableCart() : itemCount(0), guestName("Walk-in Guest"), couponCode(""), discountPercent(0.0), discountFlat(0.0) {}
+};
+
+TableCart gTableCarts[MAX_TABLES + 1];
+
+// [MODULE VIII] Array-based Stack for Order Action Undo (LIFO)
 ArrayStack<CartAction, 50> gUndoStack;
 
 // [MODULE VIII] ArrayStack for Recently Viewed Dishes (LIFO)
@@ -42,35 +68,26 @@ ArrayStack<int, 20> gRecentlyViewedStack;
 // [MODULE IX] Custom Array-based Circular Queue for Kitchen Orders (FIFO)
 CircularQueue<int, 50> gKitchenQueue;
 
-// [MODULE IX] Express vs Standard Priority Order Queue
+// [MODULE IX] Priority Order Queue (VIP / Express Fast-Track)
 PriorityOrderQueue<int, 50> gPriorityOrderQueue;
 
-// [MODULE IX] Circular Queue for Rider Rotation
-CircularQueue<int, MAX_RIDERS> gAvailableRiderQueue;
-
-// [MODULE IV] 2D Array Manager for Sales Matrix and Distance Lookup
+// [MODULE IV] 2D Array Sales Matrix Manager (6 Outlets x 7 Days)
 SalesMatrixManager gSalesMatrix;
 
-// [MODULE X] STL Manager for Maps, Sets, Vectors, Deques, and Stacks/Queues
+// [MODULE X] STL Manager (vector, deque, map, set, stack, queue, pair)
 STLManager gSTLManager;
 
-// Active Shopping Cart State
-CartItem gCartItems[MAX_CART_ITEMS];
-int gCartCount = 0;
-std::string gActiveCouponCode = "";
-double gActiveDiscountPercent = 0.0;
-double gActiveDiscountFlat = 0.0;
-
-// Orders Archive
-Order gOrders[MAX_ORDERS_HISTORY];
-int gOrderCount = 0;
-int gNextOrderId = 1001;
+// Live Active KOT Orders
+OrderTicket gActiveOrders[MAX_ORDERS_HISTORY];
+int gActiveOrderCount = 0;
+int gNextOrderId = 1004; // 1001, 1002, 1003 seeded
+int gNextBillId = 5003;  // 5001, 5002 seeded
 
 // ============================================================================
-// [MODULE II] HELPER FUNCTIONS (Pass-by-value, Pass-by-reference, Overloading)
+// [MODULE II] HELPER FUNCTIONS & LOOKUPS
 // ============================================================================
 
-// [MODULE II] Function Overloading: formatCurrency with double
+// [MODULE II] Function Overloading: formatCurrency with double rupees
 inline std::string formatCurrency(double amount) {
     std::ostringstream ss;
     ss << CURRENCY_SYMBOL << std::fixed << std::setprecision(2) << amount;
@@ -79,16 +96,9 @@ inline std::string formatCurrency(double amount) {
 
 // [MODULE II] Function Overloading: formatCurrency with integer paise
 inline std::string formatCurrency(int paise) {
-    // [MODULE I] Type conversion: static_cast from int paise to double rupees
+    // [MODULE I] Type conversion: static_cast from int to double
     double rupees = static_cast<double>(paise) / 100.0;
     return formatCurrency(rupees);
-}
-
-const MenuItem* findMenuItemById(int itemId) {
-    for (int i = 0; i < gMenuItemCount; ++i) {
-        if (gMenuItems[i].id == itemId) return &gMenuItems[i];
-    }
-    return nullptr;
 }
 
 MenuItem* findMenuItemByIdMutable(int itemId) {
@@ -98,98 +108,117 @@ MenuItem* findMenuItemByIdMutable(int itemId) {
     return nullptr;
 }
 
-const Restaurant* findRestaurantById(int restId) {
-    for (int i = 0; i < gRestaurantCount; ++i) {
-        if (gRestaurants[i].id == restId) return &gRestaurants[i];
+const MenuItem* findMenuItemById(int itemId) {
+    return findMenuItemByIdMutable(itemId);
+}
+
+Table* findTableByIdMutable(int tableId) {
+    for (int i = 0; i < gTableCount; ++i) {
+        if (gTables[i].id == tableId) return &gTables[i];
     }
     return nullptr;
 }
 
-Order* findOrderById(int orderId) {
-    for (int i = 0; i < gOrderCount; ++i) {
-        if (gOrders[i].orderId == orderId) return &gOrders[i];
+const Table* findTableById(int tableId) {
+    return findTableByIdMutable(tableId);
+}
+
+const RestaurantOutlet* findOutletById(int outletId) {
+    for (int i = 0; i < gOutletCount; ++i) {
+        if (gOutlets[i].id == outletId) return &gOutlets[i];
     }
     return nullptr;
 }
 
+OrderTicket* findActiveOrderById(int orderId) {
+    for (int i = 0; i < gActiveOrderCount; ++i) {
+        if (gActiveOrders[i].orderId == orderId) return &gActiveOrders[i];
+    }
+    return nullptr;
+}
+
+// Calculate active order position in circular kitchen queue
 int getOrderQueuePosition(int orderId) {
     for (int i = 0; i < gKitchenQueue.size(); ++i) {
         int qId = 0;
         if (gKitchenQueue.getAtOffset(i, qId) && qId == orderId) {
-            return i + 1; // 1-indexed queue position
+            return i + 1; // 1-indexed position
         }
     }
     return 0;
 }
 
-// [MODULE I] Bill Calculation using operators and type conversion
-void calculateCartTotals(
+// [MODULE I] Bill Calculation using operators and financial rates
+void calculateTableBillTotals(
+    int tableId,
     double& outSubtotal,
-    double& outTax,
-    double& outDeliveryFee,
     double& outDiscount,
-    double& outTotal,
-    int deliveryZoneId = 0,
-    bool isExpress = false)
+    double& outGstTax,
+    double& outServiceCharge,
+    double& outNetTotal)
 {
     outSubtotal = 0.0;
-    int restaurantZoneId = 0;
-
-    for (int i = 0; i < gCartCount; ++i) {
-        outSubtotal += gCartItems[i].getLineTotal();
-        const Restaurant* r = findRestaurantById(gCartItems[i].restaurantId);
-        if (r) restaurantZoneId = r->zoneId;
-    }
-
-    if (gCartCount == 0) {
-        outTax = 0.0; outDeliveryFee = 0.0; outDiscount = 0.0; outTotal = 0.0;
-        return;
-    }
-
-    outTax = outSubtotal * TAX_RATE;
-    int estimatedMins = 0;
-    SalesMatrixManager::calculateDelivery(restaurantZoneId, deliveryZoneId, isExpress, outDeliveryFee, estimatedMins);
-
     outDiscount = 0.0;
-    if (gActiveDiscountPercent > 0.0) {
-        outDiscount += (outSubtotal * (gActiveDiscountPercent / 100.0));
+    outGstTax = 0.0;
+    outServiceCharge = 0.0;
+    outNetTotal = 0.0;
+
+    if (tableId < 1 || tableId > MAX_TABLES) return;
+    const TableCart& cart = gTableCarts[tableId];
+
+    for (int i = 0; i < cart.itemCount; ++i) {
+        outSubtotal += cart.items[i].getLineTotal();
     }
-    outDiscount += gActiveDiscountFlat;
-    if (gActiveCouponCode.find("FREEDEL") != std::string::npos) {
-        outDeliveryFee = 0.0;
+
+    if (cart.discountPercent > 0.0) {
+        outDiscount += (outSubtotal * (cart.discountPercent / 100.0));
     }
+    outDiscount += cart.discountFlat;
     if (outDiscount > outSubtotal) outDiscount = outSubtotal;
 
-    outTotal = (outSubtotal - outDiscount) + outTax + outDeliveryFee;
-    if (outTotal < 0.0) outTotal = 0.0;
+    double taxableBase = outSubtotal - outDiscount;
+    if (taxableBase < 0.0) taxableBase = 0.0;
+
+    outGstTax = taxableBase * GST_TAX_RATE;
+    outServiceCharge = taxableBase * SERVICE_CHARGE_RATE;
+    outNetTotal = taxableBase + outGstTax + outServiceCharge;
 }
 
-std::string cartToJSON(int deliveryZone = 0, bool isExpress = false) {
-    double subtotal = 0.0, tax = 0.0, delFee = 0.0, discount = 0.0, total = 0.0;
-    calculateCartTotals(subtotal, tax, delFee, discount, total, deliveryZone, isExpress);
+// JSON Serialization of Table Draft Order
+std::string tableCartToJSON(int tableId) {
+    if (tableId < 1 || tableId > MAX_TABLES) tableId = gActiveTableId;
+    const TableCart& cart = gTableCarts[tableId];
+    const Table* tbl = findTableById(tableId);
+
+    double subtotal = 0.0, discount = 0.0, gstTax = 0.0, serviceCharge = 0.0, netTotal = 0.0;
+    calculateTableBillTotals(tableId, subtotal, discount, gstTax, serviceCharge, netTotal);
 
     std::ostringstream ss;
     ss << std::fixed << std::setprecision(2);
     ss << "{"
-       << "\"itemCount\":" << gCartCount << ","
+       << "\"tableId\":" << tableId << ","
+       << "\"tableName\":\"" << (tbl ? tbl->name : "Table") << "\","
+       << "\"guestName\":\"" << cart.guestName << "\","
+       << "\"itemCount\":" << cart.itemCount << ","
        << "\"items\":[";
-    for (int i = 0; i < gCartCount; ++i) {
-        ss << gCartItems[i].toJSON();
-        if (i < gCartCount - 1) ss << ",";
+    for (int i = 0; i < cart.itemCount; ++i) {
+        ss << cart.items[i].toJSON();
+        if (i < cart.itemCount - 1) ss << ",";
     }
     ss << "],"
-       << "\"coupon\":\"" << gActiveCouponCode << "\","
-       << "\"discountPercent\":" << gActiveDiscountPercent << ","
+       << "\"coupon\":\"" << cart.couponCode << "\","
+       << "\"discountPercent\":" << cart.discountPercent << ","
        << "\"discountAmount\":" << discount << ","
        << "\"subtotal\":" << subtotal << ","
-       << "\"tax\":" << tax << ","
-       << "\"deliveryFee\":" << delFee << ","
-       << "\"total\":" << total << ","
+       << "\"gstTax\":" << gstTax << ","
+       << "\"serviceCharge\":" << serviceCharge << ","
+       << "\"netTotal\":" << netTotal << ","
        << "\"undoStackDepth\":" << gUndoStack.size()
        << "}";
     return ss.str();
 }
 
+// JSON Response Wrapper
 std::string makeResponse(bool success, const std::string& message, const std::string& dataJSON, const std::vector<std::string>& modules) {
     std::ostringstream ss;
     ss << "{"
@@ -213,23 +242,23 @@ std::string makeResponse(bool success, const std::string& message, const std::st
 }
 
 // ============================================================================
-// [MODULE VIII] CART ACTIONS & [FEATURE 2] INVENTORY LOCK ENGINE
+// [MODULE VIII] TABLE ORDER ACTIONS & INVENTORY RESERVATION ENGINE
 // ============================================================================
 
-bool addToCartInternal(int itemId, int quantity, bool recordUndo = true) {
-    if (quantity <= 0) return false;
+bool addToTableOrderInternal(int tableId, int itemId, int quantity, bool recordUndo = true) {
+    if (quantity <= 0 || tableId < 1 || tableId > MAX_TABLES) return false;
     MenuItem* item = findMenuItemByIdMutable(itemId);
     if (!item) return false;
 
-    // [FEATURE 2: REAL-TIME INVENTORY LOCK]
     // Check available unreserved stock
     if ((item->stock - item->reservedStock) < quantity) {
-        return false; // Out of stock or inventory already locked by active carts
+        return false; // Insufficient kitchen stock
     }
 
+    TableCart& cart = gTableCarts[tableId];
     int existingIdx = -1;
-    for (int i = 0; i < gCartCount; ++i) {
-        if (gCartItems[i].itemId == itemId) {
+    for (int i = 0; i < cart.itemCount; ++i) {
+        if (cart.items[i].itemId == itemId) {
             existingIdx = i;
             break;
         }
@@ -239,943 +268,1024 @@ bool addToCartInternal(int itemId, int quantity, bool recordUndo = true) {
     int newQty = quantity;
 
     if (existingIdx != -1) {
-        prevQty = gCartItems[existingIdx].quantity;
+        prevQty = cart.items[existingIdx].quantity;
         newQty = prevQty + quantity;
-        gCartItems[existingIdx].quantity = newQty;
+        cart.items[existingIdx].quantity = newQty;
     } else {
-        if (gCartCount >= MAX_CART_ITEMS) return false;
-        gCartItems[gCartCount] = {itemId, item->restaurantId, item->name, item->price, quantity};
-        gCartCount++;
+        if (cart.itemCount >= MAX_ORDER_ITEMS) return false;
+        cart.items[cart.itemCount] = {itemId, item->outletId, item->name, item->price, quantity};
+        cart.itemCount++;
     }
 
-    // Atomically lock inventory for the session
+    // Atomically reserve kitchen stock
     item->reservedStock += quantity;
 
+    // [MODULE VIII] Push to Custom Array-based Undo Stack
     if (recordUndo) {
         CartAction action;
-        action.type = (existingIdx == -1 ? ACTION_ADD_ITEM : ACTION_UPDATE_QTY);
+        action.type = (prevQty == 0) ? ACTION_ADD_ITEM : ACTION_UPDATE_QTY;
         action.itemId = itemId;
         action.previousQuantity = prevQty;
         action.newQuantity = newQty;
         action.itemPrice = item->price;
         action.itemName = item->name;
         gUndoStack.push(action);
-        gSTLManager.pushUndo(action);
+        gSTLManager.pushUndo(action); // Mirror into STL stack
     }
 
     return true;
 }
 
-bool removeFromCartInternal(int itemId, bool recordUndo = true) {
-    int foundIdx = -1;
-    for (int i = 0; i < gCartCount; ++i) {
-        if (gCartItems[i].itemId == itemId) {
-            foundIdx = i;
+bool removeFromTableOrderInternal(int tableId, int itemId, bool recordUndo = true) {
+    if (tableId < 1 || tableId > MAX_TABLES) return false;
+    TableCart& cart = gTableCarts[tableId];
+
+    int targetIdx = -1;
+    for (int i = 0; i < cart.itemCount; ++i) {
+        if (cart.items[i].itemId == itemId) {
+            targetIdx = i;
             break;
         }
     }
-    if (foundIdx == -1) return false;
+    if (targetIdx == -1) return false;
 
-    CartItem itemBeingRemoved = gCartItems[foundIdx];
+    int removedQty = cart.items[targetIdx].quantity;
+    std::string itemName = cart.items[targetIdx].name;
+    double itemPrice = cart.items[targetIdx].price;
+
+    // Release reserved inventory
     MenuItem* item = findMenuItemByIdMutable(itemId);
     if (item) {
-        // [FEATURE 2: REAL-TIME INVENTORY RELEASE]
-        item->reservedStock -= itemBeingRemoved.quantity;
+        item->reservedStock -= removedQty;
         if (item->reservedStock < 0) item->reservedStock = 0;
     }
+
+    // Shift remaining array elements
+    for (int i = targetIdx; i < cart.itemCount - 1; ++i) {
+        cart.items[i] = cart.items[i + 1];
+    }
+    cart.itemCount--;
 
     if (recordUndo) {
         CartAction action;
         action.type = ACTION_REMOVE_ITEM;
         action.itemId = itemId;
-        action.previousQuantity = itemBeingRemoved.quantity;
+        action.previousQuantity = removedQty;
         action.newQuantity = 0;
-        action.itemPrice = itemBeingRemoved.price;
-        action.itemName = itemBeingRemoved.name;
+        action.itemPrice = itemPrice;
+        action.itemName = itemName;
         gUndoStack.push(action);
         gSTLManager.pushUndo(action);
     }
 
-    for (int i = foundIdx; i < gCartCount - 1; ++i) {
-        gCartItems[i] = gCartItems[i + 1];
-    }
-    gCartCount--;
     return true;
 }
 
-bool performCartUndo(std::string& outActionDesc) {
+// [MODULE VIII] Undo Last Table Order Action using ArrayStack
+bool undoLastTableOrderAction(int tableId) {
+    if (gUndoStack.isEmpty()) return false;
+    if (tableId < 1 || tableId > MAX_TABLES) tableId = gActiveTableId;
+
     CartAction action;
-    if (!gUndoStack.pop(action)) {
-        outActionDesc = "Undo history is empty.";
-        return false;
-    }
+    if (!gUndoStack.pop(action)) return false;
 
     CartAction stlAction;
-    gSTLManager.popUndo(stlAction);
+    gSTLManager.popUndo(stlAction); // Keep STL in sync
 
-    std::ostringstream ss;
+    TableCart& cart = gTableCarts[tableId];
 
     if (action.type == ACTION_ADD_ITEM) {
-        if (action.previousQuantity == 0) {
-            removeFromCartInternal(action.itemId, false);
-            ss << "Removed '" << action.itemName << "' from order";
-        } else {
-            for (int i = 0; i < gCartCount; ++i) {
-                if (gCartItems[i].itemId == action.itemId) {
-                    int diff = gCartItems[i].quantity - action.previousQuantity;
-                    gCartItems[i].quantity = action.previousQuantity;
-                    MenuItem* m = findMenuItemByIdMutable(action.itemId);
-                    if (m) {
-                        m->reservedStock -= diff;
-                        if (m->reservedStock < 0) m->reservedStock = 0;
-                    }
-                    break;
-                }
-            }
-            ss << "Updated quantity of '" << action.itemName << "' to " << action.previousQuantity;
-        }
+        // Was newly added: remove it without pushing to undo
+        removeFromTableOrderInternal(tableId, action.itemId, false);
     } else if (action.type == ACTION_UPDATE_QTY) {
-        for (int i = 0; i < gCartCount; ++i) {
-            if (gCartItems[i].itemId == action.itemId) {
-                int diff = gCartItems[i].quantity - action.previousQuantity;
-                gCartItems[i].quantity = action.previousQuantity;
-                MenuItem* m = findMenuItemByIdMutable(action.itemId);
-                if (m) {
-                    m->reservedStock -= diff;
-                    if (m->reservedStock < 0) m->reservedStock = 0;
-                }
+        // Was updated: restore previous quantity
+        int targetIdx = -1;
+        for (int i = 0; i < cart.itemCount; ++i) {
+            if (cart.items[i].itemId == action.itemId) {
+                targetIdx = i;
                 break;
             }
         }
-        ss << "Restored quantity of '" << action.itemName << "' to " << action.previousQuantity;
+        if (targetIdx != -1) {
+            int delta = action.newQuantity - action.previousQuantity;
+            cart.items[targetIdx].quantity = action.previousQuantity;
+            MenuItem* item = findMenuItemByIdMutable(action.itemId);
+            if (item) {
+                item->reservedStock -= delta;
+                if (item->reservedStock < 0) item->reservedStock = 0;
+            }
+        }
     } else if (action.type == ACTION_REMOVE_ITEM) {
-        addToCartInternal(action.itemId, action.previousQuantity, false);
-        ss << "Restored '" << action.itemName << "' to order";
+        // Was removed: re-add previous quantity without pushing to undo
+        addToTableOrderInternal(tableId, action.itemId, action.previousQuantity, false);
     }
 
-    outActionDesc = ss.str();
     return true;
 }
 
-// ============================================================================
-// [FEATURE 1: SMART FLEET DISPATCH & ZONE ROUTING ENGINE]
-// ============================================================================
+void clearTableOrderInternal(int tableId) {
+    if (tableId < 1 || tableId > MAX_TABLES) return;
+    TableCart& cart = gTableCarts[tableId];
 
-int dispatchNearestRider(int orderId) {
-    Order* order = findOrderById(orderId);
-    if (!order) return -1;
-    const Restaurant* rest = findRestaurantById(order->restaurantId);
-    if (!rest) return -1;
-
-    double nearestDist = 999.0;
-    int riderIdx = findNearestAvailableRider(rest->zoneId, gRiders, gRiderCount, ZONE_DISTANCE_MATRIX, nearestDist);
-    if (riderIdx == -1) return -1; // No riders available
-
-    Rider& rider = gRiders[riderIdx];
-    rider.isAvailable = false;
-    rider.activeOrderId = orderId;
-    order->assignedRiderId = rider.id;
-    order->riderName = rider.name + " (" + rider.vehicle + ")";
-    order->dispatchDistance = nearestDist;
-    order->status = "OUT_FOR_DELIVERY";
-
-    // Dynamic ETA: kitchen prep + (distance / speed multiplier * 3.5 min/km)
-    double speedMult = (rider.speedMultiplier > 0.1 ? rider.speedMultiplier : 1.0);
-    order->estimatedMinutes = (order->isExpress ? 8 : 15) + static_cast<int>(std::round(nearestDist * 3.5 / speedMult));
-    return rider.id;
+    for (int i = 0; i < cart.itemCount; ++i) {
+        MenuItem* item = findMenuItemByIdMutable(cart.items[i].itemId);
+        if (item) {
+            item->reservedStock -= cart.items[i].quantity;
+            if (item->reservedStock < 0) item->reservedStock = 0;
+        }
+    }
+    cart.itemCount = 0;
+    cart.couponCode = "";
+    cart.discountPercent = 0.0;
+    cart.discountFlat = 0.0;
 }
 
 // ============================================================================
-// [MODULE II] COMMAND DISPATCHER & PROTOCOL HANDLER
+// SEED INITIAL ACTIVE KOT ORDERS & PAST BILLS
+// ============================================================================
+
+void initializeActiveOrdersAndBills() {
+    // 1. Seed Active Order 1001 for Table 2 (Main Dining Hall)
+    OrderTicket kot1;
+    kot1.orderId = 1001;
+    kot1.tableId = 2;
+    kot1.tableName = "Table 2 (Booth)";
+    kot1.section = "Main Dining Hall";
+    kot1.outletId = 1;
+    kot1.outletName = "Grand Mughal Dining";
+    kot1.guestName = "Mr. Sharma";
+    kot1.serverName = "Vikram Malhotra";
+    kot1.orderTime = "13:15 PM";
+    kot1.isExpressKOT = false;
+    kot1.status = "PREPARING";
+    kot1.itemCount = 2;
+    kot1.items[0] = {101, 1, "Hyderabadi Chicken Dum Biryani", 320.00, 2};
+    kot1.items[1] = {107, 1, "Burani Garlic Raita", 60.00, 2};
+    kot1.subtotal = 760.00;
+    kot1.discount = 0.00;
+    kot1.gstTax = 38.00;
+    kot1.serviceCharge = 38.00;
+    kot1.totalAmount = 836.00;
+    kot1.queuePosition = 1;
+    gActiveOrders[gActiveOrderCount++] = kot1;
+    gKitchenQueue.enqueue(1001);
+    gSTLManager.enqueueOrder(1001);
+
+    // 2. Seed Active Order 1002 for Table 5 (AC Family Lounge)
+    OrderTicket kot2;
+    kot2.orderId = 1002;
+    kot2.tableId = 5;
+    kot2.tableName = "Table 5 (Executive)";
+    kot2.section = "AC Family Lounge";
+    kot2.outletId = 3;
+    kot2.outletName = "Trattoria Bella Vista";
+    kot2.guestName = "Dr. Kapoor";
+    kot2.serverName = "Priya Nair";
+    kot2.orderTime = "13:28 PM";
+    kot2.isExpressKOT = true;
+    kot2.status = "ORDERED";
+    kot2.itemCount = 3;
+    kot2.items[0] = {301, 3, "Wood-Fired Margherita Pizza", 390.00, 1};
+    kot2.items[1] = {303, 3, "Truffle Wild Mushroom Fettuccine", 460.00, 1};
+    kot2.items[2] = {308, 3, "Classic Espresso Tiramisu", 240.00, 2};
+    kot2.subtotal = 1330.00;
+    kot2.discount = 0.00;
+    kot2.gstTax = 66.50;
+    kot2.serviceCharge = 66.50;
+    kot2.totalAmount = 1463.00;
+    kot2.queuePosition = 2;
+    gActiveOrders[gActiveOrderCount++] = kot2;
+    gKitchenQueue.enqueue(1002);
+    gPriorityOrderQueue.enqueue(1002, true);
+    gSTLManager.enqueueOrder(1002);
+
+    // 3. Seed Active Order 1003 for Table 8 (Rooftop Terrace)
+    OrderTicket kot3;
+    kot3.orderId = 1003;
+    kot3.tableId = 8;
+    kot3.tableName = "Table 8 (Sky View)";
+    kot3.section = "Rooftop Terrace";
+    kot3.outletId = 4;
+    kot3.outletName = "Sakura Asian Bistro";
+    kot3.guestName = "Ananya & Friend";
+    kot3.serverName = "Rohit Verma";
+    kot3.orderTime = "13:05 PM";
+    kot3.isExpressKOT = false;
+    kot3.status = "SERVED";
+    kot3.itemCount = 2;
+    kot3.items[0] = {401, 4, "Rich Tonkotsu Black Garlic Ramen", 480.00, 2};
+    kot3.items[1] = {405, 4, "Pan-Seared Chicken Gyoza (6 pcs)", 280.00, 1};
+    kot3.subtotal = 1240.00;
+    kot3.discount = 0.00;
+    kot3.gstTax = 62.00;
+    kot3.serviceCharge = 62.00;
+    kot3.totalAmount = 1364.00;
+    kot3.queuePosition = 3;
+    gActiveOrders[gActiveOrderCount++] = kot3;
+    gKitchenQueue.enqueue(1003);
+    gSTLManager.enqueueOrder(1003);
+
+    // 4. Seed 2 Settled Past Bills into STL Deque
+    BillReceipt b1;
+    b1.billId = 5001;
+    b1.orderId = 998;
+    b1.tableId = 1;
+    b1.tableName = "Table 1 (Family)";
+    b1.section = "Main Dining Hall";
+    b1.guestName = "Rajesh Verma";
+    b1.serverName = "Vikram Malhotra";
+    b1.billTime = "12:30 PM";
+    b1.itemCount = 2;
+    b1.items[0] = {101, 1, "Hyderabadi Chicken Dum Biryani", 320.00, 2};
+    b1.items[1] = {108, 1, "Zafrani Matka Phirni", 130.00, 2};
+    b1.subtotal = 900.00;
+    b1.discount = 90.00; // 10% coupon
+    b1.gstTax = 40.50;
+    b1.serviceCharge = 40.50;
+    b1.netTotal = 891.00;
+    b1.paymentMethod = "UPI";
+    b1.invoiceCode = generateInvoiceCode(5001);
+    gSTLManager.recordSettledBill(b1);
+
+    BillReceipt b2;
+    b2.billId = 5002;
+    b2.orderId = 999;
+    b2.tableId = 4;
+    b2.tableName = "Table 4 (Central)";
+    b2.section = "AC Family Lounge";
+    b2.guestName = "Siddharth Rao";
+    b2.serverName = "Priya Nair";
+    b2.billTime = "12:50 PM";
+    b2.itemCount = 2;
+    b2.items[0] = {201, 2, "Ghee Roast Masala Dosa", 160.00, 2};
+    b2.items[1] = {208, 2, "Filter Degree Coffee", 50.00, 2};
+    b2.subtotal = 420.00;
+    b2.discount = 0.00;
+    b2.gstTax = 21.00;
+    b2.serviceCharge = 21.00;
+    b2.netTotal = 462.00;
+    b2.paymentMethod = "Card";
+    b2.invoiceCode = generateInvoiceCode(5002);
+    gSTLManager.recordSettledBill(b2);
+}
+
+// ============================================================================
+// [MODULE II] COMMAND DISPATCHER & EXECUTION ENGINE
 // ============================================================================
 
 std::string handleCommand(const std::string& line) {
-    auto tokens = tokenizeString(line, ' ');
-    if (tokens.empty()) {
-        return makeResponse(false, "Empty command", "{}", {"Module II (Control)"});
-    }
+    if (line.empty()) return "";
+
+    std::vector<std::string> tokens = tokenizeString(line, ' ');
+    if (tokens.empty()) return "";
 
     std::string cmd = tokens[0];
-
-    // PING
-    if (cmd == "PING") {
-        return makeResponse(true, "FoodRush Engine is alive and ready", "{\"status\":\"OK\"}", {
-            "Module I (Basics)", "Module II (Control)"
-        });
+    // Transform command to uppercase
+    for (size_t i = 0; i < cmd.length(); ++i) {
+        cmd[i] = static_cast<char>(std::toupper(static_cast<unsigned char>(cmd[i])));
     }
 
-    // GET_RESTAURANTS
-    if (cmd == "GET_RESTAURANTS") {
+    // ------------------------------------------------------------------------
+    // COMMAND: GET_INITIAL_STATE / INIT
+    // ------------------------------------------------------------------------
+    if (cmd == "GET_INITIAL_STATE" || cmd == "INIT" || cmd == "STATUS") {
         std::ostringstream ss;
-        ss << "[";
-        for (int i = 0; i < gRestaurantCount; ++i) {
-            ss << gRestaurants[i].toJSON();
-            if (i < gRestaurantCount - 1) ss << ",";
+        ss << std::fixed << std::setprecision(2);
+        ss << "{"
+           << "\"activeTableId\":" << gActiveTableId << ","
+           << "\"outlets\":[";
+        for (int i = 0; i < gOutletCount; ++i) {
+            ss << gOutlets[i].toJSON();
+            if (i < gOutletCount - 1) ss << ",";
         }
-        ss << "]";
-        return makeResponse(true, "Fetched all partner restaurants", ss.str(), {
-            "Module VI (Structures - Restaurant)",
-            "Module III (1D Arrays - restaurants[])"
-        });
-    }
-
-    // GET_MENU [restaurantId]
-    if (cmd == "GET_MENU") {
-        int targetRestId = 0;
-        if (tokens.size() > 1) {
-            targetRestId = std::stoi(tokens[1]);
+        ss << "],"
+           << "\"tables\":[";
+        for (int i = 0; i < gTableCount; ++i) {
+            ss << gTables[i].toJSON();
+            if (i < gTableCount - 1) ss << ",";
         }
-
-        std::ostringstream ss;
-        ss << "[";
-        bool first = true;
-        for (int i = 0; i < gMenuItemCount; ++i) {
-            if (targetRestId == 0 || gMenuItems[i].restaurantId == targetRestId) {
-                if (!first) ss << ",";
-                ss << gMenuItems[i].toJSON();
-                first = false;
-            }
+        ss << "],"
+           << "\"staff\":[";
+        for (int i = 0; i < gStaffCount; ++i) {
+            ss << gStaff[i].toJSON();
+            if (i < gStaffCount - 1) ss << ",";
         }
-        ss << "]";
-        return makeResponse(true, "Fetched catalog items", ss.str(), {
-            "Module VI (Structures - MenuItem)",
-            "Module III (1D Arrays - menuItems[])",
-            "Module I (Basics - Bitwise dietary flags)"
-        });
-    }
-
-    // [MODULE V] SEARCH_DISH <query>
-    if (cmd == "SEARCH_DISH") {
-        std::string query = "";
-        for (size_t i = 1; i < tokens.size(); ++i) {
-            if (i > 1) query += " ";
-            query += tokens[i];
-        }
-
-        std::ostringstream ss;
-        ss << "{\"matches\":[";
-        bool first = true;
-        int matchCount = 0;
-
-        for (int i = 0; i < gMenuItemCount; ++i) {
-            if (stringContains(gMenuItems[i].name, query) ||
-                stringContains(gMenuItems[i].category, query)) {
-                if (!first) ss << ",";
-                ss << gMenuItems[i].toJSON();
-                first = false;
-                matchCount++;
-                gRecentlyViewedStack.push(gMenuItems[i].id);
-            }
-        }
-        ss << "]";
-
-        // [MODULE V] Levenshtein fuzzy suggestion
-        std::string didYouMean = "";
-        if (matchCount == 0 && !query.empty()) {
-            didYouMean = findDidYouMeanSuggestion(query, gMenuItems, gMenuItemCount);
-        }
-
-        ss << ",\"didYouMean\":\"" << escapeJSON(didYouMean) << "\""
-           << ",\"matchCount\":" << matchCount
+        ss << "],"
+           << "\"activeCart\":" << tableCartToJSON(gActiveTableId) << ","
+           << "\"activeOrdersCount\":" << gActiveOrderCount << ","
+           << "\"kitchenQueueSize\":" << gKitchenQueue.size()
            << "}";
 
-        return makeResponse(true, "Search completed", ss.str(), {
-            "Module V (Strings - Traversal, toLower, containsSubstring, Levenshtein)",
-            "Module VIII (Stack - Recently Viewed Dishes)",
-            "Module III (1D Arrays - Linear scan)"
-        });
+        return makeResponse(true, "POS Initial State Loaded Successfully", ss.str(),
+            {"Module I (Basics)", "Module II (Functions)", "Module VI (Structures)", "Module IX (Kitchen Queue)"});
     }
 
-    // [FEATURE 3] GET_TOP_DISHES [k]
+    // ------------------------------------------------------------------------
+    // COMMAND: GET_OUTLETS / GET_RESTAURANTS
+    // ------------------------------------------------------------------------
+    if (cmd == "GET_OUTLETS" || cmd == "GET_RESTAURANTS") {
+        std::ostringstream ss;
+        ss << "[";
+        for (int i = 0; i < gOutletCount; ++i) {
+            ss << gOutlets[i].toJSON();
+            if (i < gOutletCount - 1) ss << ",";
+        }
+        ss << "]";
+        return makeResponse(true, "Kitchen Outlets Retrieved", ss.str(),
+            {"Module III (1D Arrays)", "Module VI (Structures)"});
+    }
+
+    // ------------------------------------------------------------------------
+    // COMMAND: GET_MENU [outletId]
+    // ------------------------------------------------------------------------
+    if (cmd == "GET_MENU") {
+        int filterOutlet = 0;
+        if (tokens.size() > 1) {
+            try { filterOutlet = std::stoi(tokens[1]); } catch (...) { filterOutlet = 0; }
+        }
+
+        std::ostringstream ss;
+        ss << "[";
+        bool first = true;
+        for (int i = 0; i < gMenuItemCount; ++i) {
+            if (filterOutlet == 0 || gMenuItems[i].outletId == filterOutlet) {
+                if (!first) ss << ",";
+                ss << gMenuItems[i].toJSON();
+                first = false;
+            }
+        }
+        ss << "]";
+
+        return makeResponse(true, "Menu Catalog Retrieved", ss.str(),
+            {"Module III (1D Array Traversal)", "Module VI (Structures)", "Module X (Vector Registry)"});
+    }
+
+    // ------------------------------------------------------------------------
+    // COMMAND: GET_TABLES
+    // ------------------------------------------------------------------------
+    if (cmd == "GET_TABLES") {
+        std::ostringstream ss;
+        ss << "[";
+        for (int i = 0; i < gTableCount; ++i) {
+            ss << gTables[i].toJSON();
+            if (i < gTableCount - 1) ss << ",";
+        }
+        ss << "]";
+        return makeResponse(true, "Dining Tables Status Retrieved", ss.str(),
+            {"Module III (1D Arrays)", "Module VI (Table Structures)"});
+    }
+
+    // ------------------------------------------------------------------------
+    // COMMAND: SELECT_TABLE <tableId>
+    // ------------------------------------------------------------------------
+    if (cmd == "SELECT_TABLE") {
+        if (tokens.size() < 2) return makeResponse(false, "Usage: SELECT_TABLE <tableId>", "{}", {"Module II (Control)"});
+        int tId = 1;
+        try { tId = std::stoi(tokens[1]); } catch (...) { return makeResponse(false, "Invalid tableId", "{}", {}); }
+
+        if (tId < 1 || tId > MAX_TABLES) {
+            return makeResponse(false, "Table ID out of range (1-12)", "{}", {});
+        }
+
+        gActiveTableId = tId;
+        std::string cartJson = tableCartToJSON(gActiveTableId);
+        return makeResponse(true, "Active dining table switched to Table " + std::to_string(tId), cartJson,
+            {"Module I (State)", "Module II (Functions)", "Module VI (Structures)"});
+    }
+
+    // ------------------------------------------------------------------------
+    // COMMAND: ORDER_ADD / ADD_TO_CART <itemId> [qty] [tableId]
+    // ------------------------------------------------------------------------
+    if (cmd == "ORDER_ADD" || cmd == "ADD_TO_CART") {
+        if (tokens.size() < 2) return makeResponse(false, "Usage: ORDER_ADD <itemId> [qty] [tableId]", "{}", {});
+        int itemId = 0, qty = 1, tId = gActiveTableId;
+        try {
+            itemId = std::stoi(tokens[1]);
+            if (tokens.size() > 2) qty = std::stoi(tokens[2]);
+            if (tokens.size() > 3) tId = std::stoi(tokens[3]);
+        } catch (...) {
+            return makeResponse(false, "Invalid parameters", "{}", {});
+        }
+
+        if (tId < 1 || tId > MAX_TABLES) tId = gActiveTableId;
+        bool ok = addToTableOrderInternal(tId, itemId, qty, true);
+        if (!ok) {
+            return makeResponse(false, "Failed to add dish (insufficient stock or invalid item)", "{}",
+                {"Inventory Lock Engine", "Module VIII (Stack)"});
+        }
+
+        // Track recently viewed / ordered in LIFO stack [MODULE VIII]
+        gRecentlyViewedStack.push(itemId);
+
+        return makeResponse(true, "Item added to Table " + std::to_string(tId) + " order", tableCartToJSON(tId),
+            {"Module VIII (ArrayStack Push)", "Module VI (Order Structures)", "Module I (Totals)"});
+    }
+
+    // ------------------------------------------------------------------------
+    // COMMAND: ORDER_REMOVE / REMOVE_FROM_CART <itemId> [tableId]
+    // ------------------------------------------------------------------------
+    if (cmd == "ORDER_REMOVE" || cmd == "REMOVE_FROM_CART") {
+        if (tokens.size() < 2) return makeResponse(false, "Usage: ORDER_REMOVE <itemId> [tableId]", "{}", {});
+        int itemId = 0, tId = gActiveTableId;
+        try {
+            itemId = std::stoi(tokens[1]);
+            if (tokens.size() > 2) tId = std::stoi(tokens[2]);
+        } catch (...) {
+            return makeResponse(false, "Invalid parameters", "{}", {});
+        }
+
+        if (tId < 1 || tId > MAX_TABLES) tId = gActiveTableId;
+        bool ok = removeFromTableOrderInternal(tId, itemId, true);
+        if (!ok) {
+            return makeResponse(false, "Item not found in table order", "{}", {});
+        }
+
+        return makeResponse(true, "Item removed from Table " + std::to_string(tId) + " order", tableCartToJSON(tId),
+            {"Module VIII (ArrayStack Push)", "Module III (Array Shift)"});
+    }
+
+    // ------------------------------------------------------------------------
+    // COMMAND: ORDER_UNDO / UNDO [tableId]
+    // ------------------------------------------------------------------------
+    if (cmd == "ORDER_UNDO" || cmd == "UNDO") {
+        int tId = gActiveTableId;
+        if (tokens.size() > 1) {
+            try { tId = std::stoi(tokens[1]); } catch (...) { tId = gActiveTableId; }
+        }
+
+        bool ok = undoLastTableOrderAction(tId);
+        if (!ok) {
+            return makeResponse(false, "Nothing to undo in order history", tableCartToJSON(tId),
+                {"Module VIII (ArrayStack Pop Empty Check)"});
+        }
+
+        return makeResponse(true, "Last order modification reverted (LIFO Undo)", tableCartToJSON(tId),
+            {"Module VIII (ArrayStack Pop)", "Module X (STL Stack Mirror)"});
+    }
+
+    // ------------------------------------------------------------------------
+    // COMMAND: ORDER_CLEAR / CLEAR_CART [tableId]
+    // ------------------------------------------------------------------------
+    if (cmd == "ORDER_CLEAR" || cmd == "CLEAR_CART") {
+        int tId = gActiveTableId;
+        if (tokens.size() > 1) {
+            try { tId = std::stoi(tokens[1]); } catch (...) { tId = gActiveTableId; }
+        }
+
+        clearTableOrderInternal(tId);
+        return makeResponse(true, "Table " + std::to_string(tId) + " draft order cleared", tableCartToJSON(tId),
+            {"Module I (State Reset)"});
+    }
+
+    // ------------------------------------------------------------------------
+    // COMMAND: ORDER_VIEW / GET_CART [tableId]
+    // ------------------------------------------------------------------------
+    if (cmd == "ORDER_VIEW" || cmd == "GET_CART") {
+        int tId = gActiveTableId;
+        if (tokens.size() > 1) {
+            try { tId = std::stoi(tokens[1]); } catch (...) { tId = gActiveTableId; }
+        }
+        return makeResponse(true, "Table " + std::to_string(tId) + " Order View", tableCartToJSON(tId),
+            {"Module I (Bill Calculation)", "Module VI (Structures)"});
+    }
+
+    // ------------------------------------------------------------------------
+    // COMMAND: APPLY_COUPON <code> [tableId]
+    // ------------------------------------------------------------------------
+    if (cmd == "APPLY_COUPON") {
+        if (tokens.size() < 2) return makeResponse(false, "Usage: APPLY_COUPON <code> [tableId]", "{}", {});
+        std::string code = tokens[1];
+        int tId = gActiveTableId;
+        if (tokens.size() > 2) {
+            try { tId = std::stoi(tokens[2]); } catch (...) { tId = gActiveTableId; }
+        }
+
+        // [MODULE X] Map lookup for coupon discount
+        const auto& coupons = gSTLManager.getCoupons();
+        auto it = coupons.find(code);
+        if (it != coupons.end()) {
+            gTableCarts[tId].couponCode = code;
+            gTableCarts[tId].discountPercent = it->second;
+            return makeResponse(true, "Coupon code applied (" + std::to_string(static_cast<int>(it->second)) + "% off)",
+                tableCartToJSON(tId), {"Module X (std::map lookup)", "Module I (Discount Calculation)"});
+        }
+
+        return makeResponse(false, "Invalid coupon code", tableCartToJSON(tId), {"Module X (std::map miss)"});
+    }
+
+    // ------------------------------------------------------------------------
+    // COMMAND: SUBMIT_KOT / CHECKOUT [guestName] [isExpress] [tableId]
+    // ------------------------------------------------------------------------
+    if (cmd == "SUBMIT_KOT" || cmd == "CHECKOUT") {
+        int tId = gActiveTableId;
+        std::string guestName = "Guest";
+        bool isExpress = false;
+
+        if (tokens.size() > 1 && !tokens[1].empty()) guestName = tokens[1];
+        if (tokens.size() > 2) isExpress = (tokens[2] == "1" || tokens[2] == "true" || tokens[2] == "express");
+        if (tokens.size() > 3) {
+            try { tId = std::stoi(tokens[3]); } catch (...) { tId = gActiveTableId; }
+        }
+
+        TableCart& cart = gTableCarts[tId];
+        if (cart.itemCount == 0) {
+            return makeResponse(false, "Cannot submit empty order for Table " + std::to_string(tId), "{}", {});
+        }
+
+        Table* table = findTableByIdMutable(tId);
+        if (!table) return makeResponse(false, "Table not found", "{}", {});
+
+        // Compute financial totals
+        double subtotal = 0.0, discount = 0.0, gstTax = 0.0, serviceCharge = 0.0, netTotal = 0.0;
+        calculateTableBillTotals(tId, subtotal, discount, gstTax, serviceCharge, netTotal);
+        if (isExpress) netTotal += EXPRESS_KOT_SURCHARGE;
+
+        // Create new KOT OrderTicket
+        int orderId = gNextOrderId++;
+        OrderTicket kot;
+        kot.orderId = orderId;
+        kot.tableId = tId;
+        kot.tableName = table->name;
+        kot.section = table->section;
+        kot.guestName = guestName;
+        kot.serverName = table->serverName;
+        kot.orderTime = "Just Now";
+        kot.itemCount = cart.itemCount;
+        kot.subtotal = subtotal;
+        kot.discount = discount;
+        kot.gstTax = gstTax;
+        kot.serviceCharge = serviceCharge;
+        kot.totalAmount = netTotal;
+        kot.isExpressKOT = isExpress;
+        kot.status = "ORDERED";
+
+        int firstOutletId = 1;
+        for (int i = 0; i < cart.itemCount; ++i) {
+            kot.items[i] = cart.items[i];
+            firstOutletId = cart.items[i].outletId;
+        }
+        kot.outletId = firstOutletId;
+        const RestaurantOutlet* outlet = findOutletById(firstOutletId);
+        kot.outletName = outlet ? outlet->name : "Kitchen";
+
+        // [MODULE IX] Custom Array Circular Queue Enqueue
+        gPriorityOrderQueue.enqueue(orderId, isExpress);
+        gKitchenQueue.enqueue(orderId);
+        gSTLManager.enqueueOrder(orderId); // Mirror to STL queue
+
+        kot.queuePosition = gKitchenQueue.size();
+
+        // Update table status to OCCUPIED
+        table->status = "OCCUPIED";
+        table->activeOrderId = orderId;
+
+        // Store into Active Orders array
+        if (gActiveOrderCount < MAX_ORDERS_HISTORY) {
+            gActiveOrders[gActiveOrderCount++] = kot;
+        }
+
+        // Clear table's draft cart
+        clearTableOrderInternal(tId);
+
+        return makeResponse(true, "KOT #" + std::to_string(orderId) + " dispatched to kitchen for " + table->name,
+            kot.toJSON(),
+            {"Module IX (CircularQueue Enqueue)", "Module VI (OrderTicket Struct)", "Module I (GST/Service Charge Calculation)"});
+    }
+
+    // ------------------------------------------------------------------------
+    // COMMAND: GET_ACTIVE_ORDERS / GET_KITCHEN_QUEUE
+    // ------------------------------------------------------------------------
+    if (cmd == "GET_ACTIVE_ORDERS" || cmd == "GET_KITCHEN_QUEUE") {
+        std::ostringstream ss;
+        ss << "[";
+        bool first = true;
+        for (int i = 0; i < gActiveOrderCount; ++i) {
+            if (gActiveOrders[i].status != "BILLED") {
+                if (!first) ss << ",";
+                gActiveOrders[i].queuePosition = getOrderQueuePosition(gActiveOrders[i].orderId);
+                ss << gActiveOrders[i].toJSON();
+                first = false;
+            }
+        }
+        ss << "]";
+
+        return makeResponse(true, "Active Kitchen Orders Retrieved", ss.str(),
+            {"Module IX (Circular Queue Buffer)", "Module VI (OrderTicket Structures)"});
+    }
+
+    // ------------------------------------------------------------------------
+    // COMMAND: UPDATE_ORDER_STAGE <orderId> <stage>
+    // ------------------------------------------------------------------------
+    if (cmd == "UPDATE_ORDER_STAGE") {
+        if (tokens.size() < 3) return makeResponse(false, "Usage: UPDATE_ORDER_STAGE <orderId> <ORDERED|PREPARING|SERVED|BILLED>", "{}", {});
+        int orderId = 0;
+        try { orderId = std::stoi(tokens[1]); } catch (...) { return makeResponse(false, "Invalid orderId", "{}", {}); }
+        std::string stage = tokens[2];
+        for (size_t i = 0; i < stage.length(); ++i) {
+            stage[i] = static_cast<char>(std::toupper(static_cast<unsigned char>(stage[i])));
+        }
+
+        OrderTicket* kot = findActiveOrderById(orderId);
+        if (!kot) return makeResponse(false, "Order #" + std::to_string(orderId) + " not found", "{}", {});
+
+        kot->status = stage;
+        if (stage == "SERVED") {
+            // Once served, dequeue from kitchen circular queue
+            int deqVal = 0;
+            gKitchenQueue.dequeue(deqVal);
+            gSTLManager.dequeueOrder(deqVal);
+        }
+
+        return makeResponse(true, "Order #" + std::to_string(orderId) + " status updated to " + stage, kot->toJSON(),
+            {"Module IX (Circular Queue Dequeue)", "Module VI (Order Lifecycle)"});
+    }
+
+    // ------------------------------------------------------------------------
+    // COMMAND: GENERATE_BILL <tableId> [paymentMethod] [coupon]
+    // ------------------------------------------------------------------------
+    if (cmd == "GENERATE_BILL") {
+        if (tokens.size() < 2) return makeResponse(false, "Usage: GENERATE_BILL <tableId> [paymentMethod] [coupon]", "{}", {});
+        int tId = 1;
+        try { tId = std::stoi(tokens[1]); } catch (...) { return makeResponse(false, "Invalid tableId", "{}", {}); }
+        std::string payment = (tokens.size() > 2) ? tokens[2] : "UPI";
+        std::string coupon = (tokens.size() > 3) ? tokens[3] : "";
+
+        Table* table = findTableByIdMutable(tId);
+        if (!table) return makeResponse(false, "Table not found", "{}", {});
+
+        // Find active order for this table
+        OrderTicket* activeKOT = nullptr;
+        for (int i = 0; i < gActiveOrderCount; ++i) {
+            if (gActiveOrders[i].tableId == tId && gActiveOrders[i].status != "BILLED") {
+                activeKOT = &gActiveOrders[i];
+                break;
+            }
+        }
+
+        if (!activeKOT) {
+            return makeResponse(false, "No active unbilled order found for Table " + std::to_string(tId), "{}", {});
+        }
+
+        // Apply discount if coupon provided
+        if (!coupon.empty()) {
+            const auto& coupons = gSTLManager.getCoupons();
+            auto it = coupons.find(coupon);
+            if (it != coupons.end()) {
+                activeKOT->discount = activeKOT->subtotal * (it->second / 100.0);
+                double base = activeKOT->subtotal - activeKOT->discount;
+                activeKOT->gstTax = base * GST_TAX_RATE;
+                activeKOT->serviceCharge = base * SERVICE_CHARGE_RATE;
+                activeKOT->totalAmount = base + activeKOT->gstTax + activeKOT->serviceCharge;
+            }
+        }
+
+        // Create settled BillReceipt
+        int billId = gNextBillId++;
+        BillReceipt bill;
+        bill.billId = billId;
+        bill.orderId = activeKOT->orderId;
+        bill.tableId = tId;
+        bill.tableName = table->name;
+        bill.section = table->section;
+        bill.guestName = activeKOT->guestName;
+        bill.serverName = activeKOT->serverName;
+        bill.billTime = "Today, Just Now";
+        bill.itemCount = activeKOT->itemCount;
+        for (int i = 0; i < activeKOT->itemCount; ++i) {
+            bill.items[i] = activeKOT->items[i];
+        }
+        bill.subtotal = activeKOT->subtotal;
+        bill.discount = activeKOT->discount;
+        bill.gstTax = activeKOT->gstTax;
+        bill.serviceCharge = activeKOT->serviceCharge;
+        bill.netTotal = activeKOT->totalAmount;
+        bill.paymentMethod = payment;
+
+        // [MODULE V] Generate verified Invoice Code using String Reversal Check-Digit
+        bill.invoiceCode = generateInvoiceCode(billId);
+
+        // [MODULE X] Archive settled bill into STL deque
+        gSTLManager.recordSettledBill(bill);
+
+        // [MODULE IV] Record settled revenue into 2D Sales Matrix
+        int outletIdx = (activeKOT->outletId >= 1 && activeKOT->outletId <= MAX_OUTLETS) ? (activeKOT->outletId - 1) : 0;
+        gSalesMatrix.recordSale(outletIdx, 6, bill.netTotal); // Sunday / Today column
+
+        // Mark table VACANT and KOT as BILLED
+        table->status = "VACANT";
+        table->activeOrderId = -1;
+        activeKOT->status = "BILLED";
+
+        std::string asciiReceipt = generatePrintReceiptText(bill);
+        std::ostringstream ss;
+        ss << "{"
+           << "\"receipt\":" << bill.toJSON() << ","
+           << "\"asciiPrintText\":\"" << escapeJSON(asciiReceipt) << "\""
+           << "}";
+
+        return makeResponse(true, "Bill #" + std::to_string(billId) + " settled successfully. Table " + std::to_string(tId) + " is now VACANT.",
+            ss.str(),
+            {"Module V (Reversal Check-Digit)", "Module IV (Sales Matrix Recording)", "Module X (STL Deque Archive)", "Module I (Tax Invoicing)"});
+    }
+
+    // ------------------------------------------------------------------------
+    // COMMAND: GET_BILLS (Past Bills Archive)
+    // ------------------------------------------------------------------------
+    if (cmd == "GET_BILLS") {
+        const auto& pastBills = gSTLManager.getPastBills();
+        std::ostringstream ss;
+        ss << "[";
+        for (size_t i = 0; i < pastBills.size(); ++i) {
+            ss << pastBills[i].toJSON();
+            if (i < pastBills.size() - 1) ss << ",";
+        }
+        ss << "]";
+
+        return makeResponse(true, "Settled Past Bills Archive Retrieved", ss.str(),
+            {"Module X (std::deque Past Bills Archive)", "Module VI (BillReceipt Structures)"});
+    }
+
+    // ------------------------------------------------------------------------
+    // COMMAND: PRINT_BILL <billId>
+    // ------------------------------------------------------------------------
+    if (cmd == "PRINT_BILL") {
+        if (tokens.size() < 2) return makeResponse(false, "Usage: PRINT_BILL <billId>", "{}", {});
+        int billId = 0;
+        try { billId = std::stoi(tokens[1]); } catch (...) { return makeResponse(false, "Invalid billId", "{}", {}); }
+
+        const auto& pastBills = gSTLManager.getPastBills();
+        const BillReceipt* targetBill = nullptr;
+        for (const auto& b : pastBills) {
+            if (b.billId == billId) {
+                targetBill = &b;
+                break;
+            }
+        }
+
+        if (!targetBill) {
+            return makeResponse(false, "Bill #" + std::to_string(billId) + " not found in archive", "{}", {});
+        }
+
+        // [MODULE V] Verify check-digit on invoice code
+        bool isCodeValid = validateInvoiceCode(targetBill->invoiceCode);
+        std::string ascii = generatePrintReceiptText(*targetBill);
+
+        std::ostringstream ss;
+        ss << "{"
+           << "\"billId\":" << billId << ","
+           << "\"invoiceCode\":\"" << targetBill->invoiceCode << "\","
+           << "\"checkDigitVerified\":" << (isCodeValid ? "true" : "false") << ","
+           << "\"asciiReceipt\":\"" << escapeJSON(ascii) << "\","
+           << "\"receiptData\":" << targetBill->toJSON()
+           << "}";
+
+        return makeResponse(true, "Formatted Thermal Bill Receipt Generated", ss.str(),
+            {"Module V (String Reversal & Check-Digit)", "Thermal Invoice ASCII Formatter", "Module VI (Bill Structures)"});
+    }
+
+    // ------------------------------------------------------------------------
+    // COMMAND: GET_STAFF (Workers Attendance & Shifts)
+    // ------------------------------------------------------------------------
+    if (cmd == "GET_STAFF") {
+        std::ostringstream ss;
+        ss << "[";
+        for (int i = 0; i < gStaffCount; ++i) {
+            ss << gStaff[i].toJSON();
+            if (i < gStaffCount - 1) ss << ",";
+        }
+        ss << "]";
+
+        return makeResponse(true, "Staff Attendance Register Retrieved", ss.str(),
+            {"Module III (1D Staff Array)", "Module VI (StaffMember Structures)"});
+    }
+
+    // ------------------------------------------------------------------------
+    // COMMAND: MARK_ATTENDANCE <staffId> <present:0|1> [hoursWorked]
+    // ------------------------------------------------------------------------
+    if (cmd == "MARK_ATTENDANCE") {
+        if (tokens.size() < 3) return makeResponse(false, "Usage: MARK_ATTENDANCE <staffId> <0|1> [hours]", "{}", {});
+        int staffId = 0;
+        bool isPresent = false;
+        double hours = 8.0;
+
+        try {
+            staffId = std::stoi(tokens[1]);
+            isPresent = (tokens[2] == "1" || tokens[2] == "true");
+            if (tokens.size() > 3) hours = std::stod(tokens[3]);
+        } catch (...) {
+            return makeResponse(false, "Invalid parameters", "{}", {});
+        }
+
+        StaffMember* member = nullptr;
+        for (int i = 0; i < gStaffCount; ++i) {
+            if (gStaff[i].id == staffId) {
+                member = &gStaff[i];
+                break;
+            }
+        }
+
+        if (!member) return makeResponse(false, "Staff member not found", "{}", {});
+
+        member->isPresent = isPresent;
+        member->hoursWorked = isPresent ? hours : 0.0;
+
+        return makeResponse(true, "Attendance marked for " + member->name, member->toJSON(),
+            {"Module III (Staff Roster Update)", "Module VI (Structures)"});
+    }
+
+    // ------------------------------------------------------------------------
+    // COMMAND: SEARCH_DISHES <query>
+    // ------------------------------------------------------------------------
+    if (cmd == "SEARCH_DISHES") {
+        if (tokens.size() < 2) return makeResponse(false, "Usage: SEARCH_DISHES <query>", "[]", {});
+        std::string query = line.substr(line.find(' ') + 1);
+
+        std::string queryLower = toLowerString(query);
+        std::vector<std::string> queryTokens = tokenizeString(queryLower, ' ');
+
+        std::vector<const MenuItem*> matchingDishes;
+        for (int i = 0; i < gMenuItemCount; ++i) {
+            std::string itemNameLower = toLowerString(gMenuItems[i].name);
+            std::string catLower = toLowerString(gMenuItems[i].category);
+
+            bool matches = false;
+            for (const auto& token : queryTokens) {
+                if (stringContains(itemNameLower, token) || stringContains(catLower, token)) {
+                    matches = true;
+                    break;
+                }
+            }
+            if (matches) {
+                matchingDishes.push_back(&gMenuItems[i]);
+            }
+        }
+
+        // Levenshtein "Did You Mean"
+        std::string didYouMean = "";
+        int bestDistance = 999;
+        for (int i = 0; i < gMenuItemCount; ++i) {
+            int dist = calculateLevenshteinDistance(queryLower, toLowerString(gMenuItems[i].name));
+            if (dist > 0 && dist < 4 && dist < bestDistance) {
+                bestDistance = dist;
+                didYouMean = gMenuItems[i].name;
+            }
+        }
+
+        std::ostringstream ss;
+        ss << "{"
+           << "\"query\":\"" << escapeJSON(query) << "\","
+           << "\"matchCount\":" << matchingDishes.size() << ","
+           << "\"didYouMean\":\"" << escapeJSON(didYouMean) << "\","
+           << "\"charFrequency\":" << charFrequencyToJSON(analyzeCharFrequency(queryLower)) << ","
+           << "\"results\":[";
+        for (size_t i = 0; i < matchingDishes.size(); ++i) {
+            ss << matchingDishes[i]->toJSON();
+            if (i < matchingDishes.size() - 1) ss << ",";
+        }
+        ss << "]}";
+
+        return makeResponse(true, "Dish search completed", ss.str(),
+            {"Module V (Tokenizing, Levenshtein DP Matrix, Char Frequency)", "Module III (Linear Search)"});
+    }
+
+    // ------------------------------------------------------------------------
+    // COMMAND: GET_SALES_MATRIX / GET_SALES_REPORT
+    // ------------------------------------------------------------------------
+    if (cmd == "GET_SALES_MATRIX" || cmd == "GET_SALES_REPORT") {
+        return makeResponse(true, "Weekly Sales Matrix & Seating Layout Retrieved", gSalesMatrix.toJSON(),
+            {"Module IV (2D Array Matrix Traversal, Row/Col Sums, Max Element)"});
+    }
+
+    // ------------------------------------------------------------------------
+    // COMMAND: GET_TOP_DISHES [k]
+    // ------------------------------------------------------------------------
     if (cmd == "GET_TOP_DISHES") {
         int k = 5;
         if (tokens.size() > 1) {
-            k = std::stoi(tokens[1]);
-        }
-        std::vector<MenuItem> topList = getTopKDishes(gMenuItems, gMenuItemCount, k);
-        std::ostringstream ss;
-        ss << "{\"topK\":" << topList.size() << ",\"dishes\":[";
-        for (size_t i = 0; i < topList.size(); ++i) {
-            ss << topList[i].toJSON();
-            if (i < topList.size() - 1) ss << ",";
-        }
-        ss << "]}";
-        return makeResponse(true, "Top-rated dishes leaderboard", ss.str(), {
-            "Module VII (Performance - O(N log K) Sorting / Ranking)",
-            "Feature 3 (Customer Rating System & Top-K Ranking)"
-        });
-    }
-
-    // [FEATURE 3] RATE_DISH <dishId> <rating>
-    if (cmd == "RATE_DISH") {
-        if (tokens.size() < 3) {
-            return makeResponse(false, "Usage: RATE_DISH <dishId> <rating_1_to_5>", "{}", {"Module II (Control)"});
-        }
-        int dishId = std::stoi(tokens[1]);
-        double score = std::stod(tokens[2]);
-        if (score < 1.0 || score > 5.0) {
-            return makeResponse(false, "Rating must be between 1.0 and 5.0", "{}", {"Module II (Control)"});
-        }
-        MenuItem* item = findMenuItemByIdMutable(dishId);
-        if (!item) return makeResponse(false, "Dish not found", "{}", {"Module II (Control)"});
-
-        // Moving average recalculation
-        item->rating = ((item->rating * item->ratingCount) + score) / (item->ratingCount + 1);
-        item->ratingCount++;
-
-        return makeResponse(true, "Rating submitted for '" + item->name + "'", item->toJSON(), {
-            "Module I (Basics - Floating Point Calculation)",
-            "Feature 3 (Customer Rating System & Top-K Ranking)"
-        });
-    }
-
-    // [FEATURE 2] RESTOCK_ITEM <itemId> <quantity>
-    if (cmd == "RESTOCK_ITEM") {
-        if (tokens.size() < 3) {
-            return makeResponse(false, "Usage: RESTOCK_ITEM <itemId> <quantity>", "{}", {"Module II (Control)"});
-        }
-        int itemId = std::stoi(tokens[1]);
-        int qty = std::stoi(tokens[2]);
-        if (qty <= 0) return makeResponse(false, "Quantity must be positive", "{}", {"Module II (Control)"});
-        MenuItem* item = findMenuItemByIdMutable(itemId);
-        if (!item) return makeResponse(false, "Dish not found", "{}", {"Module II (Control)"});
-        item->stock += qty;
-        return makeResponse(true, "Restocked '" + item->name + "' by " + std::to_string(qty) + " units", item->toJSON(), {
-            "Module III (1D Arrays - stock update)",
-            "Feature 2 (Real-Time Stock Lock & Inventory Reservation)"
-        });
-    }
-
-    // CART_ADD <itemId> <quantity>
-    if (cmd == "CART_ADD") {
-        if (tokens.size() < 3) {
-            return makeResponse(false, "Usage: CART_ADD <itemId> <quantity>", "{}", {"Module II (Control)"});
-        }
-        int itemId = std::stoi(tokens[1]);
-        int quantity = std::stoi(tokens[2]);
-
-        bool ok = addToCartInternal(itemId, quantity, true);
-        if (!ok) {
-            return makeResponse(false, "Could not add item: out of stock or inventory locked.", "{}", {
-                "Module VIII (Stack)", "Feature 2 (Real-Time Inventory Lock)"
-            });
+            try { k = std::stoi(tokens[1]); } catch (...) { k = 5; }
         }
 
-        return makeResponse(true, "Item added to your order", cartToJSON(), {
-            "Module VIII (Stack - push action for undo)",
-            "Module VI (Structures - CartItem)",
-            "Feature 2 (Real-Time Inventory Lock)"
-        });
-    }
-
-    // CART_REMOVE <itemId>
-    if (cmd == "CART_REMOVE") {
-        if (tokens.size() < 2) {
-            return makeResponse(false, "Usage: CART_REMOVE <itemId>", "{}", {"Module II (Control)"});
-        }
-        int itemId = std::stoi(tokens[1]);
-        bool ok = removeFromCartInternal(itemId, true);
-        if (!ok) {
-            return makeResponse(false, "Item not found in your order", "{}", {"Module VIII (Stack)"});
-        }
-
-        return makeResponse(true, "Item removed from order", cartToJSON(), {
-            "Module VIII (Stack - push remove action)",
-            "Module VI (Structures - CartItem)",
-            "Feature 2 (Real-Time Inventory Release)"
-        });
-    }
-
-    // CART_UNDO
-    if (cmd == "CART_UNDO") {
-        std::string desc = "";
-        bool ok = performCartUndo(desc);
-        if (!ok) {
-            return makeResponse(false, desc, cartToJSON(), {"Module VIII (Stack - empty check)"});
-        }
-
-        return makeResponse(true, "Undid last action: " + desc, cartToJSON(), {
-            "Module VIII (Stack - pop & reverse action)",
-            "Module VI (Structures - CartAction)",
-            "Feature 2 (Real-Time Inventory Lock Sync)"
-        });
-    }
-
-    // CART_VIEW [deliveryZoneId] [isExpress]
-    if (cmd == "CART_VIEW") {
-        int zone = 0;
-        bool express = false;
-        if (tokens.size() > 1) zone = std::stoi(tokens[1]);
-        if (tokens.size() > 2) express = (tokens[2] == "1" || tokens[2] == "true");
-
-        return makeResponse(true, "Current order breakdown", cartToJSON(zone, express), {
-            "Module I (Basics - tax, subtotal, delivery calculation)",
-            "Module IV (2D Arrays - zone distance lookup)",
-            "Module VI (Structures - CartItem)"
-        });
-    }
-
-    // CART_CLEAR
-    if (cmd == "CART_CLEAR") {
-        // Release all reserved stock
-        for (int i = 0; i < gCartCount; ++i) {
-            MenuItem* m = findMenuItemByIdMutable(gCartItems[i].itemId);
-            if (m) {
-                m->reservedStock -= gCartItems[i].quantity;
-                if (m->reservedStock < 0) m->reservedStock = 0;
-            }
-        }
-        gCartCount = 0;
-        gUndoStack.clear();
-        gActiveCouponCode = "";
-        gActiveDiscountPercent = 0.0;
-        gActiveDiscountFlat = 0.0;
-
-        return makeResponse(true, "Order cleared", cartToJSON(), {
-            "Module VIII (Stack - clear)",
-            "Feature 2 (Real-Time Inventory Release)"
-        });
-    }
-
-    // APPLY_COUPON <code>
-    if (cmd == "APPLY_COUPON") {
-        if (tokens.size() < 2) {
-            return makeResponse(false, "Please provide a coupon code", "{}", {"Module II (Control)"});
-        }
-        std::string rawCode = tokens[1];
-        std::string upperCode = "";
-        for (char c : rawCode) upperCode += static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
-
-        double discountPct = 0.0;
-        bool found = gSTLManager.getCouponDiscount(upperCode, discountPct);
-
-        // [MODULE V] String Reversal for Palindrome Promo Bonus
-        std::string revCode = reverseString(upperCode);
-        bool isPalindrome = (upperCode.length() >= 3 && upperCode == revCode);
-
-        if (found || isPalindrome) {
-            if (isPalindrome && !found) {
-                discountPct = 15.0; // 15% VIP Palindrome bonus
-                upperCode += " (Palindrome Bonus)";
-            } else if (isPalindrome && found) {
-                discountPct += 10.0; // Additional 10% bonus
-                upperCode += " + Palindrome (+10%)";
-            }
-            gActiveCouponCode = upperCode;
-            gActiveDiscountPercent = discountPct;
-
-            std::ostringstream ss;
-            ss << "{\"coupon\":\"" << upperCode << "\",\"discountPercent\":" << discountPct << "}";
-            return makeResponse(true, "Promotion applied: " + std::to_string(static_cast<int>(discountPct)) + "% OFF", ss.str(), {
-                "Module X (STL - std::map lookup)",
-                "Module V (Strings - reverseString palindrome check)",
-                "Module I (Basics - percentage discount)"
-            });
-        }
-
-        return makeResponse(false, "Invalid coupon code. Try FIRST50, WELCOME10, or FREEDEL.", "{}", {
-            "Module X (STL - std::map::find)",
-            "Module V (Strings - reverseString)"
-        });
-    }
-
-    // CHECKOUT <name> <zoneId> <street> [isExpress]
-    if (cmd == "CHECKOUT") {
-        if (tokens.size() < 4) {
-            return makeResponse(false, "Usage: CHECKOUT <name> <zoneId> <street> [isExpress]", "{}", {"Module II (Control)"});
-        }
-        if (gCartCount == 0) {
-            return makeResponse(false, "Cannot checkout: your cart is empty", "{}", {"Module II (Control)"});
-        }
-
-        std::string customerName = tokens[1];
-        int zoneId = std::stoi(tokens[2]);
-        std::string street = tokens[3];
-        bool isExpress = (tokens.size() > 4) ? (tokens[4] == "1" || tokens[4] == "true") : false;
-
-        if (zoneId < 0 || zoneId >= MAX_ZONES) zoneId = 0;
-
-        double subtotal = 0.0, tax = 0.0, delFee = 0.0, discount = 0.0, total = 0.0;
-        calculateCartTotals(subtotal, tax, delFee, discount, total, zoneId, isExpress);
-
-        int restId = gCartItems[0].restaurantId;
-        const Restaurant* rest = findRestaurantById(restId);
-        int restZone = rest ? rest->zoneId : 0;
-        std::string restName = rest ? rest->name : "Partner Kitchen";
-        int estimatedMins = 0;
-        double dummyFee = 0.0;
-        SalesMatrixManager::calculateDelivery(restZone, zoneId, isExpress, dummyFee, estimatedMins);
-
-        int orderId = gNextOrderId++;
-
-        // [MODULE V] Generate verified tracking code with check digit using string reversal
-        std::string trackingCode = generateTrackingCode(orderId);
-
-        // [MODULE VI] Build Order Struct
-        Order newOrder;
-        newOrder.orderId = orderId;
-        newOrder.trackingCode = trackingCode;
-        newOrder.restaurantId = restId;
-        newOrder.restaurantName = restName;
-        newOrder.customerName = customerName;
-        newOrder.deliveryAddress = {street, zoneId, "", ""};
-        newOrder.itemCount = gCartCount;
-        for (int i = 0; i < gCartCount; ++i) {
-            newOrder.items[i] = gCartItems[i];
-            MenuItem* m = findMenuItemByIdMutable(gCartItems[i].itemId);
-            if (m) {
-                m->stock -= gCartItems[i].quantity;
-                m->reservedStock -= gCartItems[i].quantity;
-                if (m->reservedStock < 0) m->reservedStock = 0;
-                if (m->stock < 0) m->stock = 0;
-            }
-        }
-        newOrder.subtotal = subtotal;
-        newOrder.tax = tax;
-        newOrder.deliveryFee = delFee;
-        newOrder.discount = discount;
-        newOrder.totalAmount = total;
-        newOrder.isExpress = isExpress;
-        newOrder.status = "PLACED";
-        newOrder.assignedRiderId = -1;
-        newOrder.riderName = "Assigning delivery partner";
-        newOrder.estimatedMinutes = estimatedMins;
-        newOrder.dispatchDistance = 0.0;
-
-        // [MODULE IX] Circular Queue Enqueue for Kitchen Orders
-        gKitchenQueue.enqueue(newOrder.orderId);
-        gPriorityOrderQueue.enqueue(newOrder.orderId, isExpress);
-        gSTLManager.enqueueOrder(newOrder.orderId);
-
-        newOrder.queuePosition = getOrderQueuePosition(orderId);
-
-        if (gOrderCount < MAX_ORDERS_HISTORY) {
-            gOrders[gOrderCount++] = newOrder;
-        }
-
-        // [MODULE IV] Record live sale into 2D Sales Matrix
-        int restaurantIndex = restId - 1;
-        if (restaurantIndex >= 0 && restaurantIndex < MAX_RESTAURANTS) {
-            gSalesMatrix.recordSale(restaurantIndex, 6, total);
-        }
-
-        // Reset cart after checkout
-        gCartCount = 0;
-        gUndoStack.clear();
-        gActiveCouponCode = "";
-        gActiveDiscountPercent = 0.0;
-        gActiveDiscountFlat = 0.0;
-
-        return makeResponse(true, "Order placed successfully! Tracking code: " + trackingCode, newOrder.toJSON(), {
-            "Module VI (Structures - Nested Order & Address)",
-            "Module IX (Queue - Circular & Priority Enqueue)",
-            "Module V (Strings - Tracking code check-digit via string reversal)",
-            "Module IV (2D Arrays - Sales Matrix update & Distance fee)",
-            "Module I (Basics - Bill & tax calculation)",
-            "Feature 2 (Real-Time Stock Lock & Stock Deduction)"
-        });
-    }
-
-    // TRACK_ORDER <orderIdOrCode>
-    if (cmd == "TRACK_ORDER") {
-        if (tokens.size() < 2) {
-            return makeResponse(false, "Usage: TRACK_ORDER <orderIdOrCode>", "{}", {"Module II (Control)"});
-        }
-        std::string query = tokens[1];
-        Order* target = nullptr;
-
-        try {
-            int id = std::stoi(query);
-            target = findOrderById(id);
-        } catch (...) {
-            for (int i = 0; i < gOrderCount; ++i) {
-                if (gOrders[i].trackingCode == query) {
-                    target = &gOrders[i];
-                    break;
-                }
-            }
-        }
-
-        if (!target) {
-            if (gOrderCount > 0) target = &gOrders[gOrderCount - 1];
-            else return makeResponse(false, "Order not found", "{}", {"Module II (Control)"});
-        }
-
-        target->queuePosition = getOrderQueuePosition(target->orderId);
-        bool isTrackingValid = validateTrackingCode(target->trackingCode);
-
-        std::ostringstream ss;
-        ss << "{"
-           << "\"order\":" << target->toJSON() << ","
-           << "\"trackingCodeVerified\":" << (isTrackingValid ? "true" : "false")
-           << "}";
-
-        return makeResponse(true, "Tracking details for order #" + std::to_string(target->orderId), ss.str(), {
-            "Module V (Strings - Tracking code verification via reversal)",
-            "Module IX (Queue - Live circular queue position inspection)",
-            "Module VI (Structures - Order)"
-        });
-    }
-
-    // SIMULATE_NEXT_STAGE [orderId]
-    if (cmd == "SIMULATE_NEXT_STAGE") {
-        Order* target = nullptr;
-        if (tokens.size() > 1) {
-            int ordId = std::stoi(tokens[1]);
-            target = findOrderById(ordId);
-        } else if (gOrderCount > 0) {
-            target = &gOrders[gOrderCount - 1];
-        }
-
-        if (!target) {
-            return makeResponse(false, "No active order to advance", "{}", {"Module II (Control)"});
-        }
-
-        std::string prevStatus = target->status;
-        std::string newStatus = prevStatus;
-
-        if (prevStatus == "PLACED") {
-            target->status = "PREPARING";
-            target->riderName = "Chef is preparing your meal";
-            newStatus = "PREPARING";
-        } else if (prevStatus == "PREPARING") {
-            // Kitchen finishes: dequeue and dispatch nearest rider
-            int dummyId = 0;
-            bool wasExpress = false;
-            gPriorityOrderQueue.dequeue(dummyId, wasExpress);
-            gKitchenQueue.dequeue(dummyId);
-            gSTLManager.dequeueOrder(dummyId);
-
-            // [FEATURE 1: SMART FLEET DISPATCH] Greedily assign nearest available rider
-            int riderId = dispatchNearestRider(target->orderId);
-            if (riderId == -1) {
-                target->riderName = "Awaiting available partner";
-            }
-            newStatus = "OUT_FOR_DELIVERY";
-        } else if (prevStatus == "OUT_FOR_DELIVERY") {
-            target->status = "DELIVERED";
-            target->estimatedMinutes = 0;
-
-            if (target->assignedRiderId != -1) {
-                for (int i = 0; i < gRiderCount; ++i) {
-                    if (gRiders[i].id == target->assignedRiderId) {
-                        gRiders[i].isAvailable = true;
-                        gRiders[i].activeOrderId = -1;
-                        gRiders[i].totalDeliveries++;
-                        gAvailableRiderQueue.enqueue(gRiders[i].id);
-                        break;
-                    }
-                }
-            }
-            gSTLManager.recordCompletedOrder(target->orderId);
-            newStatus = "DELIVERED";
-        }
-
-        target->queuePosition = getOrderQueuePosition(target->orderId);
-
-        std::vector<std::string> tags = {
-            "Module IX (Queue - Circular Queue dequeue & Rider rotation)",
-            "Module VI (Structures - Order state transition)",
-            "Feature 1 (Smart Fleet Dispatch & Zone Routing)"
-        };
-        if (newStatus == "DELIVERED") {
-            tags.push_back("Module X (STL - std::deque completed orders)");
-        }
-
-        return makeResponse(true, "Order #" + std::to_string(target->orderId) + " transitioned to: " + newStatus, target->toJSON(), tags);
-    }
-
-    // GET_ORDERS
-    if (cmd == "GET_ORDERS") {
-        std::ostringstream ss;
-        ss << "{"
-           << "\"kitchenQueueSize\":" << gKitchenQueue.size() << ","
-           << "\"priorityQueueSize\":" << gPriorityOrderQueue.totalSize() << ","
-           << "\"expressQueueSize\":" << gPriorityOrderQueue.expressSize() << ","
-           << "\"orders\":[";
-        for (int i = gOrderCount - 1; i >= 0; --i) {
-            ss << gOrders[i].toJSON();
-            if (i > 0) ss << ",";
-        }
-        ss << "]}";
-        return makeResponse(true, "Fetched orders", ss.str(), {
-            "Module IX (Queue - CircularQueue size & peek)",
-            "Module VI (Structures - Order[])"
-        });
-    }
-
-    // COOK_ORDER [orderId]
-    if (cmd == "COOK_ORDER") {
-        int orderId = -1;
-        if (tokens.size() > 1) {
-            orderId = std::stoi(tokens[1]);
-        } else {
-            bool wasExpress = false;
-            if (!gPriorityOrderQueue.dequeue(orderId, wasExpress)) {
-                return makeResponse(false, "Kitchen queue is empty", "{}", {"Module IX (Queue)"});
-            }
-            int circId = -1;
-            gKitchenQueue.dequeue(circId);
-            int stlId = -1;
-            gSTLManager.dequeueOrder(stlId);
-        }
-
-        Order* targetOrder = findOrderById(orderId);
-        if (!targetOrder) {
-            return makeResponse(false, "Order not found", "{}", {"Module II (Control)"});
-        }
-
-        targetOrder->status = "READY_FOR_PICKUP";
-        targetOrder->riderName = "Awaiting delivery partner pickup";
-
-        return makeResponse(true, "Order #" + std::to_string(orderId) + " prepared by kitchen", targetOrder->toJSON(), {
-            "Module IX (Queue - Circular Queue dequeue)",
-            "Module VI (Structures - Order status update)"
-        });
-    }
-
-    // [FEATURE 1] ASSIGN_RIDER / DISPATCH_ORDER <orderId>
-    if (cmd == "ASSIGN_RIDER" || cmd == "DISPATCH_ORDER") {
-        if (tokens.size() < 2) {
-            return makeResponse(false, "Usage: ASSIGN_RIDER <orderId>", "{}", {"Module II (Control)"});
-        }
-        int orderId = std::stoi(tokens[1]);
-        Order* targetOrder = findOrderById(orderId);
-        if (!targetOrder) {
-            return makeResponse(false, "Order not found", "{}", {"Module II (Control)"});
-        }
-
-        int riderId = dispatchNearestRider(orderId);
-        if (riderId == -1) {
-            return makeResponse(false, "All delivery partners are currently busy", "{}", {
-                "Module IX (Queue)", "Feature 1 (Smart Fleet Dispatch)"
-            });
-        }
-
-        return makeResponse(true, "Delivery partner assigned via nearest-zone dispatch: " + targetOrder->riderName, targetOrder->toJSON(), {
-            "Feature 1 (Smart Fleet Dispatch & Zone Routing)",
-            "Module IV (2D Arrays - 5x5 Zone Distance Matrix)",
-            "Module VI (Structures - Rider & Order linkage)"
-        });
-    }
-
-    // COMPLETE_ORDER <orderId>
-    if (cmd == "COMPLETE_ORDER") {
-        if (tokens.size() < 2) {
-            return makeResponse(false, "Usage: COMPLETE_ORDER <orderId>", "{}", {"Module II (Control)"});
-        }
-        int orderId = std::stoi(tokens[1]);
-        Order* targetOrder = findOrderById(orderId);
-        if (!targetOrder) {
-            return makeResponse(false, "Order not found", "{}", {"Module II (Control)"});
-        }
-
-        targetOrder->status = "DELIVERED";
-        targetOrder->estimatedMinutes = 0;
-
-        if (targetOrder->assignedRiderId != -1) {
-            for (int i = 0; i < gRiderCount; ++i) {
-                if (gRiders[i].id == targetOrder->assignedRiderId) {
-                    gRiders[i].isAvailable = true;
-                    gRiders[i].activeOrderId = -1;
-                    gRiders[i].totalDeliveries++;
-                    gAvailableRiderQueue.enqueue(gRiders[i].id);
-                    break;
-                }
-            }
-        }
-
-        gSTLManager.recordCompletedOrder(orderId);
-
-        return makeResponse(true, "Order #" + std::to_string(orderId) + " delivered successfully", targetOrder->toJSON(), {
-            "Module IX (Queue - Return rider to Circular Queue)",
-            "Module X (STL - std::deque completed orders)",
-            "Feature 1 (Smart Fleet Dispatch - Rider Free)"
-        });
-    }
-
-    // [FEATURE 1] GET_FLEET_STATUS / GET_RIDERS
-    if (cmd == "GET_FLEET_STATUS" || cmd == "GET_RIDERS") {
+        std::vector<MenuItem> topK = getTopKDishes(gMenuItems, gMenuItemCount, k);
         std::ostringstream ss;
         ss << "[";
-        for (int i = 0; i < gRiderCount; ++i) {
-            ss << gRiders[i].toJSON();
-            if (i < gRiderCount - 1) ss << ",";
+        for (size_t i = 0; i < topK.size(); ++i) {
+            ss << topK[i].toJSON();
+            if (i < topK.size() - 1) ss << ",";
         }
         ss << "]";
-        return makeResponse(true, "Fetched delivery fleet", ss.str(), {
-            "Module VI (Structures - Rider)",
-            "Module III (1D Arrays - riders[])",
-            "Feature 1 (Smart Fleet Dispatch & Zone Routing)"
-        });
+
+        return makeResponse(true, "Top-K Highest Rated Dishes", ss.str(),
+            {"Module VII (O(N log K) Top-K Ranking)", "Module III (1D Array Sort)"});
     }
 
-    // [MODULE IV] GET_SALES_MATRIX
-    if (cmd == "GET_SALES_MATRIX") {
-        return makeResponse(true, "Weekly sales matrix and metrics", gSalesMatrix.toJSON(), {
-            "Module IV (2D Arrays - sales[6][7] row/col sums)",
-            "Module IV (2D Arrays - zone distance matrix[5][5])"
-        });
-    }
-
-    // [MODULE III] GET_ARRAY_STATS
-    if (cmd == "GET_ARRAY_STATS") {
-        double ratings[MAX_RESTAURANTS];
-        for (int i = 0; i < gRestaurantCount; ++i) ratings[i] = gRestaurants[i].rating;
-
-        double prices[MAX_TOTAL_ITEMS];
-        int stocks[MAX_TOTAL_ITEMS];
-        for (int i = 0; i < gMenuItemCount; ++i) {
-            prices[i] = gMenuItems[i].price;
-            stocks[i] = gMenuItems[i].stock;
+    // ------------------------------------------------------------------------
+    // COMMAND: RATE_DISH <itemId> <rating>
+    // ------------------------------------------------------------------------
+    if (cmd == "RATE_DISH") {
+        if (tokens.size() < 3) return makeResponse(false, "Usage: RATE_DISH <itemId> <1.0-5.0>", "{}", {});
+        int itemId = 0;
+        double ratingVal = 0.0;
+        try {
+            itemId = std::stoi(tokens[1]);
+            ratingVal = std::stod(tokens[2]);
+        } catch (...) {
+            return makeResponse(false, "Invalid parameters", "{}", {});
         }
 
-        double sumPrices = calculateArraySum(prices, gMenuItemCount);
-        double avgPrice = gMenuItemCount > 0 ? (sumPrices / gMenuItemCount) : 0.0;
+        MenuItem* item = findMenuItemByIdMutable(itemId);
+        if (!item) return makeResponse(false, "Dish not found", "{}", {});
 
-        int maxRatingIdx = -1;
-        double maxRating = findArrayMax(ratings, gRestaurantCount, maxRatingIdx);
+        if (ratingVal < 1.0) ratingVal = 1.0;
+        if (ratingVal > 5.0) ratingVal = 5.0;
 
-        int minPriceIdx = -1;
-        double minPrice = findArrayMin(prices, gMenuItemCount, minPriceIdx);
+        // Cumulative moving average
+        double totalScore = (item->rating * item->ratingCount) + ratingVal;
+        item->ratingCount++;
+        item->rating = totalScore / item->ratingCount;
 
-        int maxPriceIdx = -1;
-        double maxPrice = findArrayMax(prices, gMenuItemCount, maxPriceIdx);
-
-        double sortedPrices[MAX_TOTAL_ITEMS];
-        std::memcpy(sortedPrices, prices, sizeof(double) * gMenuItemCount);
-        bubbleSortArray(sortedPrices, gMenuItemCount);
-
-        std::ostringstream ss;
-        ss << std::fixed << std::setprecision(2);
-        ss << "{"
-           << "\"ratings\":{"
-           << "\"count\":" << gRestaurantCount << ","
-           << "\"maxRating\":" << maxRating << ","
-           << "\"bestRestaurantId\":" << (maxRatingIdx != -1 ? gRestaurants[maxRatingIdx].id : 0)
-           << "},"
-           << "\"prices\":{"
-           << "\"count\":" << gMenuItemCount << ","
-           << "\"sumTotal\":" << sumPrices << ","
-           << "\"average\":" << avgPrice << ","
-           << "\"minPrice\":" << minPrice << ","
-           << "\"cheapestItemId\":" << (minPriceIdx != -1 ? gMenuItems[minPriceIdx].id : 0) << ","
-           << "\"maxPrice\":" << maxPrice << ","
-           << "\"bubbleSortedSample\":[";
-        int sampleSize = std::min(8, gMenuItemCount);
-        for (int i = 0; i < sampleSize; ++i) {
-            ss << sortedPrices[i];
-            if (i < sampleSize - 1) ss << ",";
-        }
-        ss << "]"
-           << "}"
-           << "}";
-
-        return makeResponse(true, "1D Array statistics and bubble sort analysis", ss.str(), {
-            "Module III (1D Arrays - Sum, Min, Max, Traversal)",
-            "Module III (1D Arrays - Bubble Sort on prices)",
-            "Module I (Basics - floating point division)"
-        });
+        return makeResponse(true, "Dish rating submitted successfully", item->toJSON(),
+            {"Module I (Arithmetic Operations)", "Module VI (Structures Update)"});
     }
 
-    // [MODULE VII] BENCHMARK
+    // ------------------------------------------------------------------------
+    // COMMAND: RESTOCK_ITEM <itemId> <quantity>
+    // ------------------------------------------------------------------------
+    if (cmd == "RESTOCK_ITEM") {
+        if (tokens.size() < 3) return makeResponse(false, "Usage: RESTOCK_ITEM <itemId> <quantity>", "{}", {});
+        int itemId = 0, addQty = 0;
+        try {
+            itemId = std::stoi(tokens[1]);
+            addQty = std::stoi(tokens[2]);
+        } catch (...) {
+            return makeResponse(false, "Invalid parameters", "{}", {});
+        }
+
+        MenuItem* item = findMenuItemByIdMutable(itemId);
+        if (!item) return makeResponse(false, "Dish not found", "{}", {});
+
+        item->stock += addQty;
+        return makeResponse(true, "Inventory restocked for " + item->name, item->toJSON(),
+            {"Inventory Control Engine", "Module I (Compound Operators)"});
+    }
+
+    // ------------------------------------------------------------------------
+    // COMMAND: BENCHMARK (Stopwatch Search & Sort)
+    // ------------------------------------------------------------------------
     if (cmd == "BENCHMARK") {
         PerformanceBenchmark bench;
-        return makeResponse(true, "Performance benchmark completed", bench.runFullBenchmark(), {
-            "Module VII (Performance - O(N) vs O(log N) Search)",
-            "Module VII (Performance - O(N^2) vs O(N log N) Sort)",
-            "Module VII (Performance - Time/Space Asymptotic Complexity)"
-        });
+        std::string benchJSON = bench.runFullBenchmark();
+        return makeResponse(true, "Stopwatch Performance Benchmark Complete", benchJSON,
+            {"Module VII (Big-O Empirical Stopwatch)", "Module III (Linear vs Binary Search, Bubble vs Quick Sort)"});
     }
 
-    // [MODULE X] COMPARE_DS [operations]
+    // ------------------------------------------------------------------------
+    // COMMAND: COMPARE_DS (Custom ArrayStack/Queue vs STL)
+    // ------------------------------------------------------------------------
     if (cmd == "COMPARE_DS") {
-        int operations = 10000;
-        if (tokens.size() > 1) operations = std::stoi(tokens[1]);
+        std::string compJSON = gSTLManager.compareDataStructures(50000);
+        return makeResponse(true, "Hand-Crafted Data Structures vs STL Live Benchmark", compJSON,
+            {"Module VIII (ArrayStack)", "Module IX (CircularQueue)", "Module X (STL std::stack & std::queue)"});
+    }
 
-        ArrayStack<int, 10000> customStack;
-        std::stack<int> stlStack;
+    // ------------------------------------------------------------------------
+    // COMMAND: INSPECT_ENGINE (Memory & Buffer Inspector)
+    // ------------------------------------------------------------------------
+    if (cmd == "INSPECT_ENGINE") {
+        // Collect dish prices for 1D stats
+        double prices[MAX_TOTAL_ITEMS];
+        for (int i = 0; i < gMenuItemCount; ++i) {
+            prices[i] = gMenuItems[i].price;
+        }
 
-        auto t1 = std::chrono::high_resolution_clock::now();
-        for (int i = 0; i < operations; ++i) customStack.push(i);
-        for (int i = 0; i < operations; ++i) { int val; customStack.pop(val); }
-        auto t2 = std::chrono::high_resolution_clock::now();
-        double customStackUs = std::chrono::duration<double, std::micro>(t2 - t1).count();
-
-        t1 = std::chrono::high_resolution_clock::now();
-        for (int i = 0; i < operations; ++i) stlStack.push(i);
-        for (int i = 0; i < operations; ++i) stlStack.pop();
-        t2 = std::chrono::high_resolution_clock::now();
-        double stlStackUs = std::chrono::duration<double, std::micro>(t2 - t1).count();
-
-        CircularQueue<int, 10000> customQueue;
-        std::queue<int> stlQueue;
-
-        t1 = std::chrono::high_resolution_clock::now();
-        for (int i = 0; i < operations; ++i) customQueue.enqueue(i);
-        for (int i = 0; i < operations; ++i) { int val; customQueue.dequeue(val); }
-        t2 = std::chrono::high_resolution_clock::now();
-        double customQueueUs = std::chrono::duration<double, std::micro>(t2 - t1).count();
-
-        t1 = std::chrono::high_resolution_clock::now();
-        for (int i = 0; i < operations; ++i) stlQueue.push(i);
-        for (int i = 0; i < operations; ++i) stlQueue.pop();
-        t2 = std::chrono::high_resolution_clock::now();
-        double stlQueueUs = std::chrono::duration<double, std::micro>(t2 - t1).count();
+        int maxIdx = 0, minIdx = 0;
+        double maxPrice = findArrayMax(prices, gMenuItemCount, maxIdx);
+        double minPrice = findArrayMin(prices, gMenuItemCount, minIdx);
+        double sumPrices = calculateArraySum(prices, gMenuItemCount);
+        double avgPrice = (gMenuItemCount > 0) ? (sumPrices / gMenuItemCount) : 0.0;
 
         std::ostringstream ss;
         ss << std::fixed << std::setprecision(2);
         ss << "{"
-           << "\"operations\":" << operations << ","
-           << "\"stackComparison\":{"
-           << "\"customArrayStackUs\":" << customStackUs << ","
-           << "\"stlStackUs\":" << stlStackUs << ","
-           << "\"winner\":\"" << (customStackUs < stlStackUs ? "ArrayStack (Contiguous Memory)" : "std::stack") << "\""
-           << "},"
-           << "\"queueComparison\":{"
-           << "\"customCircularQueueUs\":" << customQueueUs << ","
-           << "\"stlQueueUs\":" << stlQueueUs << ","
-           << "\"winner\":\"" << (customQueueUs < stlQueueUs ? "CircularQueue (Zero Heap Overhead)" : "std::queue") << "\""
-           << "}"
-           << "}";
-
-        return makeResponse(true, "Data Structure comparison completed", ss.str(), {
-            "Module X (STL - std::stack, std::queue, std::deque)",
-            "Module VIII (Stack - ArrayStack direct comparison)",
-            "Module IX (Queue - CircularQueue direct comparison)",
-            "Module VII (Performance - Microsecond stopwatch benchmarking)"
-        });
-    }
-
-    // INSPECT_ENGINE
-    if (cmd == "INSPECT_ENGINE") {
-        std::ostringstream ss;
-        ss << "{"
            << "\"undoStack\":{"
-           << "\"capacity\":" << 50 << ","
            << "\"size\":" << gUndoStack.size() << ","
-           << "\"topIndex\":" << gUndoStack.getTopIndex() << ","
+           << "\"capacity\":50,"
            << "\"isEmpty\":" << (gUndoStack.isEmpty() ? "true" : "false") << ","
-           << "\"isFull\":" << (gUndoStack.isFull() ? "true" : "false") << ","
            << "\"recentActions\":[";
-        int stackViewCount = std::min(5, gUndoStack.size());
-        for (int i = 0; i < stackViewCount; ++i) {
+        int undoCount = gUndoStack.size();
+        for (int i = 0; i < undoCount && i < 5; ++i) {
             CartAction a;
             if (gUndoStack.getAtOffset(i, a)) {
                 ss << a.toJSON();
-                if (i < stackViewCount - 1) ss << ",";
+                if (i < undoCount - 1 && i < 4) ss << ",";
             }
         }
         ss << "]"
            << "},"
            << "\"kitchenQueue\":{"
-           << "\"capacity\":" << 50 << ","
            << "\"size\":" << gKitchenQueue.size() << ","
-           << "\"frontIndex\":" << gKitchenQueue.getFront() << ","
-           << "\"rearIndex\":" << gKitchenQueue.getRear() << ","
-           << "\"isEmpty\":" << (gKitchenQueue.isEmpty() ? "true" : "false") << ","
+           << "\"capacity\":50,"
            << "\"isFull\":" << (gKitchenQueue.isFull() ? "true" : "false") << ","
-           << "\"waitingOrderIds\":[";
+           << "\"queuedOrderIds\":[";
         for (int i = 0; i < gKitchenQueue.size(); ++i) {
             int qId = 0;
             if (gKitchenQueue.getAtOffset(i, qId)) {
@@ -1185,129 +1295,61 @@ std::string handleCommand(const std::string& line) {
         }
         ss << "]"
            << "},"
-           << "\"stlContainers\":{"
-           << "\"vectorMenuSize\":" << gSTLManager.getVectorSize() << ","
-           << "\"setUniqueCuisines\":" << gSTLManager.getCuisinesCount() << ","
-           << "\"mapCouponsCount\":" << gSTLManager.getCouponsCount() << ","
-           << "\"dequeCompletedOrders\":" << gSTLManager.getCompletedCount()
+           << "\"arrayStats\":{"
+           << "\"totalDishes\":" << gMenuItemCount << ","
+           << "\"minDishPrice\":" << minPrice << ","
+           << "\"maxDishPrice\":" << maxPrice << ","
+           << "\"averageDishPrice\":" << avgPrice
+           << "},"
+           << "\"stlStats\":{"
+           << "\"pastBillsCount\":" << gSTLManager.getPastBillsCount() << ","
+           << "\"couponsCount\":" << gSTLManager.getCouponsCount() << ","
+           << "\"cuisinesCount\":" << gSTLManager.getCuisinesCount()
            << "}"
            << "}";
 
-        return makeResponse(true, "Engine internal memory inspected", ss.str(), {
-            "Module VIII (Stack - Raw array memory layout inspection)",
-            "Module IX (Queue - Circular buffer front/rear pointers)",
-            "Module X (STL - Map/Set/Pair inspection)"
-        });
+        return makeResponse(true, "Engine Internal Memory Inspector", ss.str(),
+            {"Module VIII (ArrayStack Memory)", "Module IX (CircularQueue Buffer)", "Module III (1D Array Stats)", "Module X (STL Containers)"});
     }
 
-    // HELP
-    if (cmd == "HELP") {
-        return makeResponse(true, "Available Commands: PING, GET_RESTAURANTS, GET_MENU [id], SEARCH_DISH <query>, GET_TOP_DISHES [k], RATE_DISH <id> <score>, RESTOCK_ITEM <id> <qty>, CART_ADD <id> <qty>, CART_REMOVE <id>, CART_UNDO, CART_VIEW, CART_CLEAR, APPLY_COUPON <code>, CHECKOUT <name> <zoneId> <street> [express], TRACK_ORDER <idOrCode>, SIMULATE_NEXT_STAGE [id], GET_ORDERS, COOK_ORDER [id], ASSIGN_RIDER <id>, COMPLETE_ORDER <id>, GET_FLEET_STATUS, GET_SALES_MATRIX, GET_ARRAY_STATS, BENCHMARK, COMPARE_DS, INSPECT_ENGINE, HELP", "{}", {"Module II (Control)"});
-    }
-
-    return makeResponse(false, "Unknown command: " + cmd + ". Type HELP for list.", "{}", {"Module II (Control)"});
+    return makeResponse(false, "Unknown command: " + cmd, "{}", {});
 }
 
 // ============================================================================
-// INTERACTIVE CLI CONSOLE MENU (Terminal Examiner Mode)
+// CONSOLE INTERACTIVE MODE
 // ============================================================================
-void runInteractiveCLI() {
+void runInteractiveConsole() {
     std::cout << "\n======================================================\n";
-    std::cout << "         FOODRUSH - C++ CORE BACKEND ENGINE           \n";
-    std::cout << "         5-Person Capstone & Viva Demonstration       \n";
+    std::cout << "  FOODRUSH / RESTORUSH - RESTAURANT & HOTEL POS ENGINE\n";
+    std::cout << "  High-Performance C++ Core Engine (CS Syllabus I-X)\n";
     std::cout << "======================================================\n";
+    std::cout << "Available Commands:\n";
+    std::cout << "  GET_INITIAL_STATE          - View POS boot state\n";
+    std::cout << "  GET_TABLES                 - View 12 dining tables\n";
+    std::cout << "  SELECT_TABLE <id>          - Select active table (1-12)\n";
+    std::cout << "  ORDER_ADD <id> <qty>       - Add dish to table order\n";
+    std::cout << "  ORDER_UNDO                 - Undo last table modification\n";
+    std::cout << "  SUBMIT_KOT <guest> <0|1>   - Dispatch Kitchen Order Ticket\n";
+    std::cout << "  GET_ACTIVE_ORDERS          - View live kitchen KOT queue\n";
+    std::cout << "  GENERATE_BILL <tableId>    - Settle bill with GST & receipt\n";
+    std::cout << "  GET_BILLS                  - View past settled bills archive\n";
+    std::cout << "  PRINT_BILL <billId>        - Print formatted thermal receipt\n";
+    std::cout << "  GET_STAFF                  - View staff attendance & shifts\n";
+    std::cout << "  GET_SALES_MATRIX           - 6 Outlets x 7 Days weekly sales\n";
+    std::cout << "  BENCHMARK                  - Run stopwatch performance test\n";
+    std::cout << "  COMPARE_DS                 - Custom ArrayStack vs STL test\n";
+    std::cout << "  EXIT                       - Quit interactive console\n";
+    std::cout << "======================================================\n\n";
 
+    std::string line;
     while (true) {
-        std::cout << "\n--- MAIN CONSOLE MENU ---\n";
-        std::cout << "1. Browse Restaurants & Menu      [Modules III, VI]\n";
-        std::cout << "2. Search Dishes with Fuzzy Match [Module V]\n";
-        std::cout << "3. Manage Cart & Test Stack Undo  [Module VIII, Feature 2]\n";
-        std::cout << "4. Track Order & Verify Reversal  [Module V, IX]\n";
-        std::cout << "5. Cook Order (Circular Queue)    [Module IX]\n";
-        std::cout << "6. Smart Fleet Dispatch & Routing [Module IV, Feature 1]\n";
-        std::cout << "7. View 6x7 Sales Revenue Matrix  [Module IV]\n";
-        std::cout << "8. Top-Rated Leaderboard & Rate   [Module VII, Feature 3]\n";
-        std::cout << "9. Algorithmic Benchmarks & DS    [Module VII, X]\n";
-        std::cout << "10. Inspect Engine Memory (DS)    [Module VIII, IX, X]\n";
-        std::cout << "0. Exit System\n";
-        std::cout << "Choose option (0-10): ";
+        std::cout << "FoodRush POS [Table " << gActiveTableId << "]> ";
+        if (!std::getline(std::cin, line)) break;
+        if (line == "exit" || line == "EXIT" || line == "quit") break;
+        if (line.empty()) continue;
 
-        int choice = -1;
-        if (!(std::cin >> choice)) {
-            std::cin.clear();
-            std::string discard;
-            std::getline(std::cin, discard);
-            continue;
-        }
-        std::string dummy;
-        std::getline(std::cin, dummy);
-
-        if (choice == 0) break;
-        if (choice == 1) {
-            std::cout << handleCommand("GET_RESTAURANTS") << "\n";
-            std::cout << "Enter Restaurant ID for menu (or 0 for all): ";
-            int id = 0; std::cin >> id;
-            std::cout << handleCommand("GET_MENU " + std::to_string(id)) << "\n";
-        } else if (choice == 2) {
-            std::cout << "Enter search query: ";
-            std::string q; std::getline(std::cin, q);
-            std::cout << handleCommand("SEARCH_DISH " + q) << "\n";
-        } else if (choice == 3) {
-            std::cout << "\n1. Add item\n2. Remove item\n3. UNDO last action (Stack Pop)\n4. View cart\n5. Clear cart\nChoose: ";
-            int sub = 0; std::cin >> sub;
-            if (sub == 1) {
-                int id, qty;
-                std::cout << "Item ID: "; std::cin >> id;
-                std::cout << "Quantity: "; std::cin >> qty;
-                std::cout << handleCommand("CART_ADD " + std::to_string(id) + " " + std::to_string(qty)) << "\n";
-            } else if (sub == 2) {
-                int id;
-                std::cout << "Item ID: "; std::cin >> id;
-                std::cout << handleCommand("CART_REMOVE " + std::to_string(id)) << "\n";
-            } else if (sub == 3) {
-                std::cout << handleCommand("CART_UNDO") << "\n";
-            } else if (sub == 4) {
-                std::cout << handleCommand("CART_VIEW") << "\n";
-            } else {
-                std::cout << handleCommand("CART_CLEAR") << "\n";
-            }
-        } else if (choice == 4) {
-            std::cout << "Enter Order ID or Tracking Code: ";
-            std::string code; std::getline(std::cin, code);
-            std::cout << handleCommand("TRACK_ORDER " + code) << "\n";
-        } else if (choice == 5) {
-            std::cout << handleCommand("COOK_ORDER") << "\n";
-        } else if (choice == 6) {
-            std::cout << "\n1. View Fleet Status\n2. Dispatch Nearest Rider to Order\nChoose: ";
-            int sub = 0; std::cin >> sub;
-            if (sub == 1) {
-                std::cout << handleCommand("GET_FLEET_STATUS") << "\n";
-            } else {
-                std::cout << "Enter Order ID: ";
-                int ordId; std::cin >> ordId;
-                std::cout << handleCommand("ASSIGN_RIDER " + std::to_string(ordId)) << "\n";
-            }
-        } else if (choice == 7) {
-            std::cout << handleCommand("GET_SALES_MATRIX") << "\n";
-        } else if (choice == 8) {
-            std::cout << "\n1. View Top-K Rated Dishes\n2. Rate a Dish\nChoose: ";
-            int sub = 0; std::cin >> sub;
-            if (sub == 1) {
-                std::cout << "How many top dishes (K)? ";
-                int k; std::cin >> k;
-                std::cout << handleCommand("GET_TOP_DISHES " + std::to_string(k)) << "\n";
-            } else {
-                int dId; double rating;
-                std::cout << "Dish ID: "; std::cin >> dId;
-                std::cout << "Rating (1.0 - 5.0): "; std::cin >> rating;
-                std::cout << handleCommand("RATE_DISH " + std::to_string(dId) + " " + std::to_string(rating)) << "\n";
-            }
-        } else if (choice == 9) {
-            std::cout << handleCommand("BENCHMARK") << "\n";
-            std::cout << handleCommand("COMPARE_DS 10000") << "\n";
-        } else if (choice == 10) {
-            std::cout << handleCommand("INSPECT_ENGINE") << "\n";
-        }
+        std::string response = handleCommand(line);
+        std::cout << response << "\n\n";
     }
 }
 
@@ -1315,39 +1357,32 @@ void runInteractiveCLI() {
 // MAIN ENTRY POINT
 // ============================================================================
 int main(int argc, char* argv[]) {
-    // [MODULE I] Console I/O optimization
-    std::ios_base::sync_with_stdio(false);
-    std::cin.tie(NULL);
+    // 1. Initialize Seed Data (6 Outlets, 48 Dishes, 12 Tables, 8 Staff)
+    initializeSeedData(gOutlets, gOutletCount, gMenuItems, gMenuItemCount, gTables, gTableCount, gStaff, gStaffCount);
 
-    // Initialize all seed data into fixed memory arrays
-    initializeSeedData(gRestaurants, gRestaurantCount, gMenuItems, gMenuItemCount, gRiders, gRiderCount);
-
-    // Pre-populate STL structures for Module X
+    // 2. Populate STL Manager collections
     for (int i = 0; i < gMenuItemCount; ++i) {
         gSTLManager.addMenuItem(gMenuItems[i]);
     }
-    for (int i = 0; i < gRestaurantCount; ++i) {
-        gSTLManager.addCuisine(gRestaurants[i].cuisine);
-    }
-    for (int i = 0; i < gRiderCount; ++i) {
-        gAvailableRiderQueue.enqueue(gRiders[i].id);
+    for (int i = 0; i < gOutletCount; ++i) {
+        gSTLManager.addCuisine(gOutlets[i].cuisine);
     }
 
-    // CLI mode check
-    for (int i = 1; i < argc; ++i) {
-        if (std::strcmp(argv[i], "--cli") == 0 || std::strcmp(argv[i], "-c") == 0) {
-            runInteractiveCLI();
-            return 0;
-        }
+    // 3. Seed Concurrent Active KOT Orders & Past Bills
+    initializeActiveOrdersAndBills();
+
+    // 4. Interactive Console Mode Check
+    if (argc > 1 && std::string(argv[1]) == "--interactive") {
+        runInteractiveConsole();
+        return 0;
     }
 
-    // Standard I/O Bridge mode: reads 1 command line -> writes 1 JSON line
+    // 5. Line-by-Line Standard I/O Pipe Mode (Used by Node.js Server Bridge)
     std::string line;
     while (std::getline(std::cin, line)) {
         if (line.empty()) continue;
-        if (line == "EXIT" || line == "QUIT") break;
-        std::string response = handleCommand(line);
-        std::cout << response << "\n" << std::flush;
+        std::string res = handleCommand(line);
+        std::cout << res << std::endl; // Flush stdout per command line
     }
 
     return 0;

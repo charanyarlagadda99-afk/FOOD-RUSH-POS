@@ -1,5 +1,5 @@
-// FoodRush - Domain Models and System Constants
-// [MODULE VI] Structures (declaration, nested, arrays of structs, struct methods) | used by: RESTAURANT_AND_ORDER_MODELS
+// FoodRush / RestoRush - Restaurant, Hotel & Cafe POS Domain Models
+// [MODULE VI] Structures (declaration, nested, arrays of structs, struct methods) | used by: POS_MODELS
 #ifndef MODELS_HPP
 #define MODELS_HPP
 
@@ -8,35 +8,67 @@
 #include <iomanip>
 
 // [MODULE I] Named Constants for Fixed-Capacity Memory Structures
-const int MAX_RESTAURANTS = 6;
-const int MAX_ITEMS_PER_RESTAURANT = 10;
+const int MAX_OUTLETS = 6;
+const int MAX_ITEMS_PER_OUTLET = 10;
 const int MAX_TOTAL_ITEMS = 60;
-const int MAX_ZONES = 5;
-const int MAX_CART_ITEMS = 20;
+const int MAX_TABLES = 12;
+const int MAX_STAFF = 8;
+const int MAX_ORDER_ITEMS = 20;
 const int MAX_ORDERS_HISTORY = 100;
-const int MAX_RIDERS = 5;
+const int MAX_BILLS_HISTORY = 100;
 
 // [MODULE I] Financial and Operational Constants (Currency: INR ₹)
-const double TAX_RATE = 0.05;              // 5% Goods and Services Tax (GST)
-const double BASE_DELIVERY_FEE = 35.00;    // Base delivery fee in ₹
-const double PER_KM_FEE = 8.50;            // Per km rate in ₹
-const double EXPRESS_SURCHARGE = 45.00;    // Express priority kitchen surcharge in ₹
+const double GST_TAX_RATE = 0.05;         // 5% Goods and Services Tax (GST)
+const double SERVICE_CHARGE_RATE = 0.05;  // 5% Restaurant Service Charge
+const double EXPRESS_KOT_SURCHARGE = 50.00; // Urgent KOT Priority Surcharge in ₹
 const char CURRENCY_SYMBOL[] = "\xE2\x82\xB9"; // UTF-8 byte sequence for ₹
 
-// [MODULE VI] Nested Structure: Address
-struct Address {
-    std::string street;
-    int zoneId; // 0=Central, 1=North, 2=South, 3=East, 4=West
-    std::string landmark;
-    std::string instructions;
+// [MODULE VI] Structure: Table (Dine-In Hotel / Restaurant Tables)
+struct Table {
+    int id;                    // 1 to 12
+    std::string name;          // "Table 1", "T4 - Window Booth", etc.
+    std::string section;       // "Main Dining Hall", "AC Family Lounge", "Rooftop Terrace", "Garden Lounge"
+    int capacity;              // 2, 4, 6, 8, 10 persons
+    std::string status;        // "VACANT", "OCCUPIED", "BILLED"
+    int activeOrderId;         // -1 if vacant, otherwise active orderId
+    std::string serverName;    // Assigned waiter / server
 
     std::string toJSON() const {
         std::ostringstream ss;
         ss << "{"
-           << "\"street\":\"" << street << "\","
-           << "\"zoneId\":" << zoneId << ","
-           << "\"landmark\":\"" << landmark << "\","
-           << "\"instructions\":\"" << instructions << "\""
+           << "\"id\":" << id << ","
+           << "\"name\":\"" << name << "\","
+           << "\"section\":\"" << section << "\","
+           << "\"capacity\":" << capacity << ","
+           << "\"status\":\"" << status << "\","
+           << "\"activeOrderId\":" << activeOrderId << ","
+           << "\"serverName\":\"" << serverName << "\""
+           << "}";
+        return ss.str();
+    }
+};
+
+// [MODULE VI] Structure: StaffMember (Hotel & Restaurant Staff Register)
+struct StaffMember {
+    int id;                    // 1 to 8
+    std::string name;          // "Chef Rajesh", "Vikram Malhotra", etc.
+    std::string role;          // "Head Chef", "Sous Chef", "Captain Waiter", "Table Server", "Cashier", "Barista"
+    std::string shift;         // "Morning (8am-4pm)", "Evening (4pm-12am)", "Full Day"
+    bool isPresent;            // Attendance status
+    double hoursWorked;        // Hours clocked today
+    std::string phone;
+
+    std::string toJSON() const {
+        std::ostringstream ss;
+        ss << std::fixed << std::setprecision(1);
+        ss << "{"
+           << "\"id\":" << id << ","
+           << "\"name\":\"" << name << "\","
+           << "\"role\":\"" << role << "\","
+           << "\"shift\":\"" << shift << "\","
+           << "\"isPresent\":" << (isPresent ? "true" : "false") << ","
+           << "\"hoursWorked\":" << hoursWorked << ","
+           << "\"phone\":\"" << phone << "\""
            << "}";
         return ss.str();
     }
@@ -45,24 +77,25 @@ struct Address {
 // [MODULE VI] Structure: MenuItem
 struct MenuItem {
     int id;
-    int restaurantId;
+    int outletId;              // Kitchen outlet / section (1 to 6)
     std::string name;
-    std::string category;
+    std::string category;      // "Biryani", "Dosa", "Pizza", "Ramen", "Burgers", "Desserts", "Beverages"
     double price;
     int stock;
     bool isVeg;
     int calories;
     unsigned int dietaryFlags; // [MODULE I] Bitwise flags: 1=Spicy, 2=GlutenFree, 4=ChefSpecial
-    double rating;             // [FEATURE 3] Moving average rating (1.0 to 5.0)
-    int ratingCount;           // [FEATURE 3] Total ratings received
-    int reservedStock;         // [FEATURE 2] Real-time stock locked in active carts
+    double rating;             // Moving average customer rating (1.0 to 5.0)
+    int ratingCount;           // Total ratings received
+    int reservedStock;         // Stock reserved in active unbilled tables
 
     std::string toJSON() const {
         std::ostringstream ss;
         ss << std::fixed << std::setprecision(2);
         ss << "{"
            << "\"id\":" << id << ","
-           << "\"restaurantId\":" << restaurantId << ","
+           << "\"restaurantId\":" << outletId << ","
+           << "\"outletId\":" << outletId << ","
            << "\"name\":\"" << name << "\","
            << "\"category\":\"" << category << "\","
            << "\"price\":" << price << ","
@@ -82,18 +115,16 @@ struct MenuItem {
     }
 };
 
-// [MODULE VI] Structure: Restaurant
-struct Restaurant {
+// [MODULE VI] Structure: RestaurantOutlet (Kitchens / Outlets within Hotel/Complex)
+struct RestaurantOutlet {
     int id;
     std::string name;
     std::string cuisine;
-    int zoneId;
-    double rating;        // e.g. 4.8
+    std::string section;
+    double rating;
     bool isOpen;
     int itemCount;
-    int itemIds[MAX_ITEMS_PER_RESTAURANT]; // Fixed 1D array within struct
-    int etaMinutes;
-    double minOrder;
+    int itemIds[MAX_ITEMS_PER_OUTLET];
 
     std::string toJSON() const {
         std::ostringstream ss;
@@ -102,21 +133,19 @@ struct Restaurant {
            << "\"id\":" << id << ","
            << "\"name\":\"" << name << "\","
            << "\"cuisine\":\"" << cuisine << "\","
-           << "\"zoneId\":" << zoneId << ","
+           << "\"section\":\"" << section << "\","
            << "\"rating\":" << rating << ","
            << "\"isOpen\":" << (isOpen ? "true" : "false") << ","
-           << "\"itemCount\":" << itemCount << ","
-           << "\"etaMinutes\":" << etaMinutes << ","
-           << "\"minOrder\":" << std::setprecision(2) << minOrder
+           << "\"itemCount\":" << itemCount
            << "}";
         return ss.str();
     }
 };
 
-// [MODULE VI] Structure: CartItem
-struct CartItem {
+// [MODULE VI] Structure: OrderItem / CartItem
+struct OrderItem {
     int itemId;
-    int restaurantId;
+    int outletId;
     std::string name;
     double price;
     int quantity;
@@ -130,7 +159,7 @@ struct CartItem {
         ss << std::fixed << std::setprecision(2);
         ss << "{"
            << "\"itemId\":" << itemId << ","
-           << "\"restaurantId\":" << restaurantId << ","
+           << "\"outletId\":" << outletId << ","
            << "\"name\":\"" << name << "\","
            << "\"price\":" << price << ","
            << "\"quantity\":" << quantity << ","
@@ -140,7 +169,7 @@ struct CartItem {
     }
 };
 
-// Cart Action types for LIFO Undo Stack
+// Cart / Order Action types for LIFO Undo Stack [MODULE VIII]
 enum CartActionType {
     ACTION_ADD_ITEM = 1,
     ACTION_REMOVE_ITEM = 2,
@@ -169,39 +198,41 @@ struct CartAction {
     }
 };
 
-// [MODULE VI] Structure: Order (Nested structs Address + array of CartItem)
-struct Order {
+// [MODULE VI] Structure: OrderTicket (Live KOT - Kitchen Order Ticket across Tables)
+struct OrderTicket {
     int orderId;
-    std::string trackingCode;          // e.g. "TRK-1001-6" (verified via string reversal check-digit)
-    int restaurantId;
-    std::string restaurantName;
-    std::string customerName;
-    Address deliveryAddress;           // Nested struct
-    CartItem items[MAX_CART_ITEMS];    // Array of structs
+    int tableId;
+    std::string tableName;
+    std::string section;
+    int outletId;
+    std::string outletName;
+    std::string guestName;
+    OrderItem items[MAX_ORDER_ITEMS];
     int itemCount;
     double subtotal;
-    double tax;
-    double deliveryFee;
+    double gstTax;
+    double serviceCharge;
     double discount;
     double totalAmount;
-    bool isExpress;
-    std::string status;                // "PLACED", "PREPARING", "OUT_FOR_DELIVERY", "DELIVERED"
-    int assignedRiderId;               // -1 if none yet
-    std::string riderName;
-    int estimatedMinutes;
-    int queuePosition;                 // Live position in kitchen circular queue
-    double dispatchDistance;           // [FEATURE 1] Nearest rider spatial distance in km
+    bool isExpressKOT;         // Priority express kitchen ticket
+    std::string status;        // "ORDERED", "PREPARING", "SERVED", "BILLED"
+    std::string serverName;
+    int queuePosition;         // Live position in kitchen circular queue
+    std::string orderTime;
 
     std::string toJSON() const {
         std::ostringstream ss;
         ss << std::fixed << std::setprecision(2);
         ss << "{"
            << "\"orderId\":" << orderId << ","
-           << "\"trackingCode\":\"" << trackingCode << "\","
-           << "\"restaurantId\":" << restaurantId << ","
-           << "\"restaurantName\":\"" << restaurantName << "\","
-           << "\"customerName\":\"" << customerName << "\","
-           << "\"address\":" << deliveryAddress.toJSON() << ","
+           << "\"tableId\":" << tableId << ","
+           << "\"tableName\":\"" << tableName << "\","
+           << "\"section\":\"" << section << "\","
+           << "\"outletId\":" << outletId << ","
+           << "\"outletName\":\"" << outletName << "\","
+           << "\"guestName\":\"" << guestName << "\","
+           << "\"serverName\":\"" << serverName << "\","
+           << "\"orderTime\":\"" << orderTime << "\","
            << "\"itemCount\":" << itemCount << ","
            << "\"items\":[";
         for (int i = 0; i < itemCount; ++i) {
@@ -210,49 +241,72 @@ struct Order {
         }
         ss << "],"
            << "\"subtotal\":" << subtotal << ","
-           << "\"tax\":" << tax << ","
-           << "\"deliveryFee\":" << deliveryFee << ","
+           << "\"gstTax\":" << gstTax << ","
+           << "\"serviceCharge\":" << serviceCharge << ","
            << "\"discount\":" << discount << ","
            << "\"totalAmount\":" << totalAmount << ","
-           << "\"isExpress\":" << (isExpress ? "true" : "false") << ","
+           << "\"isExpress\":" << (isExpressKOT ? "true" : "false") << ","
            << "\"status\":\"" << status << "\","
-           << "\"assignedRiderId\":" << assignedRiderId << ","
-           << "\"riderName\":\"" << riderName << "\","
-           << "\"estimatedMinutes\":" << estimatedMinutes << ","
-           << "\"queuePosition\":" << queuePosition << ","
-           << "\"dispatchDistance\":" << dispatchDistance
+           << "\"queuePosition\":" << queuePosition
            << "}";
         return ss.str();
     }
 };
 
-// [MODULE VI] Structure: Rider
-struct Rider {
-    int id;
-    std::string name;
-    std::string vehicle; // "Electric Cargo Bike", "Hero Electric Scooter", etc.
-    int currentZone;
-    bool isAvailable;
-    int totalDeliveries;
-    std::string phone;
-    int activeOrderId;         // [FEATURE 1] -1 if idle, otherwise currently assigned order
-    double speedMultiplier;    // [FEATURE 1] Vehicle speed coefficient (e.g. 1.25x for EV)
+// [MODULE VI] Structure: BillReceipt (Settled Customer Bill & Invoice for Printing)
+struct BillReceipt {
+    int billId;                // e.g. 5001
+    int orderId;
+    int tableId;
+    std::string tableName;
+    std::string section;
+    std::string guestName;
+    std::string serverName;
+    std::string billTime;
+    OrderItem items[MAX_ORDER_ITEMS];
+    int itemCount;
+    double subtotal;
+    double gstTax;
+    double serviceCharge;
+    double discount;
+    double netTotal;
+    std::string paymentMethod; // "UPI", "Cash", "Card"
+    std::string invoiceCode;   // e.g. "INV-5001-8" (verified via string reversal check-digit)
 
     std::string toJSON() const {
         std::ostringstream ss;
+        ss << std::fixed << std::setprecision(2);
         ss << "{"
-           << "\"id\":" << id << ","
-           << "\"name\":\"" << name << "\","
-           << "\"vehicle\":\"" << vehicle << "\","
-           << "\"currentZone\":" << currentZone << ","
-           << "\"isAvailable\":" << (isAvailable ? "true" : "false") << ","
-           << "\"totalDeliveries\":" << totalDeliveries << ","
-           << "\"phone\":\"" << phone << "\","
-           << "\"activeOrderId\":" << activeOrderId << ","
-           << "\"speedMultiplier\":" << std::fixed << std::setprecision(2) << speedMultiplier
+           << "\"billId\":" << billId << ","
+           << "\"orderId\":" << orderId << ","
+           << "\"tableId\":" << tableId << ","
+           << "\"tableName\":\"" << tableName << "\","
+           << "\"section\":\"" << section << "\","
+           << "\"guestName\":\"" << guestName << "\","
+           << "\"serverName\":\"" << serverName << "\","
+           << "\"billTime\":\"" << billTime << "\","
+           << "\"itemCount\":" << itemCount << ","
+           << "\"items\":[";
+        for (int i = 0; i < itemCount; ++i) {
+            ss << items[i].toJSON();
+            if (i < itemCount - 1) ss << ",";
+        }
+        ss << "],"
+           << "\"subtotal\":" << subtotal << ","
+           << "\"gstTax\":" << gstTax << ","
+           << "\"serviceCharge\":" << serviceCharge << ","
+           << "\"discount\":" << discount << ","
+           << "\"netTotal\":" << netTotal << ","
+           << "\"paymentMethod\":\"" << paymentMethod << "\","
+           << "\"invoiceCode\":\"" << invoiceCode << "\""
            << "}";
         return ss.str();
     }
 };
+
+// Alias for backwards compatibility
+typedef RestaurantOutlet Restaurant;
+typedef OrderItem CartItem;
+typedef OrderTicket Order;
 
 #endif // MODELS_HPP

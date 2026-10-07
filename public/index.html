@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>FoodRush — Curated Food Delivery</title>
+    <title>FoodRush POS — Restaurant & Hotel Management System</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet">
@@ -11,16 +11,17 @@
 </head>
 <body>
 
-    <!-- VIVA EXAMINER BANNER (Hidden by default; revealed only in Viva Mode) -->
+    <!-- VIVA EXAMINER BANNER (Revealed only in Viva Mode via key 'V' or Examiner link) -->
     <div id="vivaTopBanner" class="viva-banner" style="display: none;">
         <div class="viva-banner-inner">
             <div class="viva-badge-group">
                 <span class="viva-tag">EXAMINER MODE ACTIVE</span>
-                <span id="vivaHandledBadge" class="viva-handled-badge">Action: Standby</span>
+                <span id="vivaHandledBadge" class="viva-handled-badge">Action: System Initialized</span>
             </div>
             <div class="viva-banner-actions">
                 <button class="viva-btn" onclick="openVivaModal('inspector')">Memory Inspector</button>
                 <button class="viva-btn" onclick="openVivaModal('benchmarks')">Benchmarks</button>
+                <button class="viva-btn" onclick="openVivaModal('compare')">Data Structures</button>
                 <button class="viva-btn" onclick="openVivaModal('map')">Module Map</button>
                 <button class="viva-close-btn" onclick="toggleVivaMode(false)" title="Exit Viva Mode (Key: V)">✕</button>
             </div>
@@ -31,31 +32,30 @@
     <header class="site-header">
         <div class="header-container">
             <div class="header-left">
-                <a href="#storefront" class="brand-logo" onclick="navigateTo('storefront')">
+                <a href="#billing" class="brand-logo" onclick="navigateTo('billing')">
                     <svg class="brand-icon" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
                         <circle cx="16" cy="16" r="14" fill="#D9531E" fill-opacity="0.12"/>
-                        <path d="M9 16C9 12.134 12.134 9 16 9C19.866 9 23 12.134 23 16C23 19.866 19.866 23 16 23" stroke="#D9531E" stroke-width="2.5" stroke-linecap="round"/>
-                        <circle cx="16" cy="16" r="3" fill="#D9531E"/>
-                        <path d="M23 9L21 11" stroke="#D9531E" stroke-width="2" stroke-linecap="round"/>
+                        <path d="M10 12H22M10 16H18M10 20H15" stroke="#D9531E" stroke-width="2" stroke-linecap="round"/>
+                        <rect x="7" y="7" width="18" height="18" rx="3" stroke="#D9531E" stroke-width="2"/>
                     </svg>
-                    <span class="brand-name">FoodRush</span>
+                    <span class="brand-name">FoodRush POS</span>
                 </a>
 
-                <div class="delivery-pill">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
-                    <span>Delivering to: <strong id="headerZoneName">Central</strong></span>
+                <div class="table-quick-pill" onclick="navigateTo('billing')">
+                    <span class="pill-dot"></span>
+                    <span>Active Table: <strong id="headerActiveTable">Table 1</strong></span>
                 </div>
             </div>
 
             <nav class="header-nav">
-                <button class="nav-link active" id="navStorefront" onclick="navigateTo('storefront')">Explore</button>
-                <button class="nav-link" id="navTracker" onclick="navigateTo('tracker')">Track Order</button>
-                <button class="nav-link" id="navAdmin" onclick="navigateTo('admin')">Admin</button>
-                <button class="cart-trigger-btn" onclick="toggleCartDrawer(true)">
-                    <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
-                    <span>Bag</span>
-                    <span class="cart-badge-count" id="headerCartCount">0</span>
+                <button class="nav-link active" id="navBilling" onclick="navigateTo('billing')">Tables & Billing</button>
+                <button class="nav-link" id="navKitchen" onclick="navigateTo('kitchen')">
+                    <span>Kitchen KOT</span>
+                    <span class="kot-badge" id="headerKotCount">3</span>
                 </button>
+                <button class="nav-link" id="navBills" onclick="navigateTo('bills')">Past Bills</button>
+                <button class="nav-link" id="navStaff" onclick="navigateTo('staff')">Staff & Shifts</button>
+                <button class="nav-link" id="navSales" onclick="navigateTo('sales')">Sales Analytics</button>
             </nav>
         </div>
     </header>
@@ -64,492 +64,292 @@
     <main class="page-body">
 
         <!-- ============================================================= -->
-        <!-- VIEW 1: STOREFRONT & RESTAURANTS                              -->
+        <!-- VIEW 1: DINE-IN TABLES & BILLING                              -->
         <!-- ============================================================= -->
-        <section id="viewStorefront" class="app-view active">
-            <!-- HERO SEARCH SECTION -->
-            <section class="hero-section">
-                <div class="hero-content">
-                    <h1 class="hero-title">Curated dining, delivered to your door.</h1>
-                    <p class="hero-subtitle">Freshly prepared meals from top neighbourhood kitchens, dispatched in minutes.</p>
+        <section id="viewBilling" class="app-view active">
+            <div class="pos-layout">
 
-                    <div class="search-bar-wrap">
-                        <svg class="search-bar-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
-                        <input type="text" id="mainSearchInput" class="search-bar-input" placeholder="Search dishes, flavours, or cuisines (e.g., Biryani, Dosa, Ramen, Truffle)..." autocomplete="off" oninput="handleSearchInput(event)">
-                        <button class="search-clear-btn" id="searchClearBtn" onclick="clearSearch()" style="display:none;">✕</button>
+                <!-- LEFT COLUMN: Tables Grid & Outlet Menu Catalog -->
+                <div class="pos-catalog-column">
+                    
+                    <!-- DINING TABLES SELECTOR -->
+                    <div class="tables-section">
+                        <div class="section-header-compact">
+                            <h2 class="section-title-sm">Dining Tables (1-12)</h2>
+                            <span class="section-subtitle-sm">Select table to view or add items</span>
+                        </div>
+                        <div class="tables-grid" id="tablesGrid">
+                            <!-- Populated dynamically via JS -->
+                        </div>
                     </div>
 
-                    <!-- Did You Mean Suggestion Bar -->
+                    <!-- CATALOG HEADER & SEARCH -->
+                    <div class="catalog-header-bar">
+                        <div class="catalog-search-wrap">
+                            <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+                            <input type="text" id="dishSearchInput" class="search-input" placeholder="Search menu dishes (e.g., Biryani, Dosa, Pizza, Ramen)..." oninput="handleSearch(event)">
+                            <button class="clear-btn" id="searchClearBtn" onclick="clearSearch()" style="display:none;">✕</button>
+                        </div>
+                    </div>
+
+                    <!-- Did You Mean Bar -->
                     <div id="didYouMeanBar" class="did-you-mean-bar" style="display: none;">
                         <span>Did you mean:</span>
-                        <button class="did-you-mean-chip" id="didYouMeanChip" onclick="applySuggestion()">Biryani</button>
+                        <button class="suggestion-chip" id="suggestionChip" onclick="applySuggestion()">Biryani</button>
                     </div>
 
-                    <!-- Cuisine Filter Chips -->
-                    <div class="cuisine-chips-row">
-                        <button class="cuisine-chip active" id="chipAll" onclick="selectCuisineFilter('All')">All Cuisines</button>
-                        <button class="cuisine-chip" onclick="selectCuisineFilter('Biryani')">Biryani</button>
-                        <button class="cuisine-chip" onclick="selectCuisineFilter('South Indian')">South Indian</button>
-                        <button class="cuisine-chip" onclick="selectCuisineFilter('Artisan Italian')">Artisan Italian</button>
-                        <button class="cuisine-chip" onclick="selectCuisineFilter('Japanese')">Japanese</button>
-                        <button class="cuisine-chip" onclick="selectCuisineFilter('American Gourmet')">Burgers</button>
-                        <button class="cuisine-chip" onclick="selectCuisineFilter('Desserts & Bakery')">Desserts</button>
-                        <button class="cuisine-chip" id="chipTopRated" onclick="selectTopRatedFilter()" style="border-color:#E2B842; color:#8C6200;">★ Top Rated</button>
+                    <!-- OUTLET FILTER TABS -->
+                    <div class="outlet-tabs-row" id="outletTabsRow">
+                        <button class="outlet-tab active" onclick="selectOutlet(0)">All Outlets (48)</button>
+                        <button class="outlet-tab" onclick="selectOutlet(1)">Grand Mughal</button>
+                        <button class="outlet-tab" onclick="selectOutlet(2)">Dakshin Tiffin</button>
+                        <button class="outlet-tab" onclick="selectOutlet(3)">Trattoria Bella</button>
+                        <button class="outlet-tab" onclick="selectOutlet(4)">Sakura Asian</button>
+                        <button class="outlet-tab" onclick="selectOutlet(5)">Boulevard Grill</button>
+                        <button class="outlet-tab" onclick="selectOutlet(6)">Royal Patisserie</button>
+                    </div>
+
+                    <!-- DISHES GRID -->
+                    <div class="dishes-grid" id="dishesGrid">
+                        <!-- Populated dynamically via JS -->
                     </div>
                 </div>
-            </section>
 
-            <!-- RESTAURANTS SECTION -->
-            <section id="restaurantsSection" class="content-container">
-                <div class="section-title-wrap">
-                    <h2 class="section-heading">Featured Kitchens</h2>
-                    <span class="section-meta">Selected for quality and speed</span>
-                </div>
-
-                <div class="restaurants-grid" id="restaurantsGrid">
-                    <!-- Dynamic Restaurant Cards -->
-                </div>
-            </section>
-
-            <!-- ACTIVE RESTAURANT MENU SECTION -->
-            <section id="menuSection" class="content-container" style="margin-top: 48px;">
-                <div class="menu-header-bar">
-                    <div>
-                        <div style="display:flex; align-items:center; gap:12px;">
-                            <h2 class="section-heading" id="menuRestaurantName">All Dishes</h2>
-                            <button id="menuResetBtn" class="text-link-btn" onclick="clearSearch()" style="display:none; font-size:13px; color:var(--accent); background:none; border:none; cursor:pointer; text-decoration:underline;">Show All Dishes</button>
+                <!-- RIGHT COLUMN: Active Table Order Panel -->
+                <div class="pos-order-column">
+                    <div class="order-panel-card">
+                        <div class="order-panel-header">
+                            <div>
+                                <h3 class="order-table-title" id="orderPanelTableName">Table 1 (Family)</h3>
+                                <p class="order-table-sub" id="orderPanelTableSub">Main Dining Hall · Server: Vikram Malhotra</p>
+                            </div>
+                            <button class="order-undo-btn" id="orderUndoBtn" onclick="undoOrderAction()" title="Undo last modification (ArrayStack LIFO)">
+                                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10"/></svg>
+                                <span>Undo</span>
+                            </button>
                         </div>
-                        <span class="section-meta" id="menuRestaurantMeta">Showing freshly prepared specialities</span>
-                    </div>
-                    <div class="dietary-filters">
-                        <button class="filter-pill active" onclick="filterMenuByDiet('all')">All</button>
-                        <button class="filter-pill" onclick="filterMenuByDiet('veg')">Veg Only</button>
-                        <button class="filter-pill" onclick="filterMenuByDiet('nonveg')">Non-Veg</button>
-                        <button class="filter-pill" onclick="filterMenuByDiet('special')">Chef Special</button>
-                    </div>
-                </div>
 
-                <div class="dishes-grid" id="dishesGrid">
-                    <!-- Dynamic Dishes -->
-                </div>
-            </section>
-        </section>
+                        <!-- Guest Name & Express Toggle -->
+                        <div class="order-guest-bar">
+                            <input type="text" id="orderGuestInput" class="guest-input" placeholder="Guest Name (e.g. Mr. Sharma)" value="Walk-in Guest">
+                            <label class="express-label" title="Express KOT priority fast-track in kitchen queue">
+                                <input type="checkbox" id="orderExpressCheckbox">
+                                <span>Express KOT (+₹50)</span>
+                            </label>
+                        </div>
 
-        <!-- ============================================================= -->
-        <!-- VIEW 2: LIVE ORDER TRACKER                                    -->
-        <!-- ============================================================= -->
-        <section id="viewTracker" class="app-view">
-            <div class="content-container tracker-page-wrap">
-                <div class="tracker-header">
-                    <h1 class="tracker-title">Live Order Tracking</h1>
-                    <p class="tracker-subtitle">Follow your meal from kitchen prep to doorstep arrival in real time.</p>
-                </div>
+                        <!-- Active Items List -->
+                        <div class="order-items-scroll" id="orderItemsList">
+                            <div class="empty-order-state">
+                                <p>No dishes added for this table yet.</p>
+                                <p class="empty-tip">Select dishes from the catalog on the left to punch an order.</p>
+                            </div>
+                        </div>
 
-                <!-- Tracking Code Input Lookup -->
-                <div class="tracker-lookup-card">
-                    <div class="lookup-form">
-                        <label for="trackCodeInput">Have an Order Code?</label>
-                        <div class="lookup-input-group">
-                            <input type="text" id="trackCodeInput" placeholder="Enter Order ID or Tracking Code (e.g., TRK-1001-8)">
-                            <button class="primary-action-btn" onclick="lookupOrder()">Find Order</button>
+                        <!-- Financial Summary -->
+                        <div class="order-summary-box">
+                            <!-- Coupon Row -->
+                            <div class="coupon-apply-row">
+                                <input type="text" id="orderCouponInput" class="coupon-input" placeholder="Coupon Code (e.g. WELCOME10)">
+                                <button class="coupon-apply-btn" onclick="applyCoupon()">Apply</button>
+                            </div>
+                            <div id="couponStatusText" class="coupon-status-text"></div>
+
+                            <div class="summary-line">
+                                <span>Subtotal:</span>
+                                <span id="summarySubtotal">₹0.00</span>
+                            </div>
+                            <div class="summary-line" id="summaryDiscountRow" style="display: none;">
+                                <span>Promo Discount:</span>
+                                <span class="discount-val" id="summaryDiscount">-₹0.00</span>
+                            </div>
+                            <div class="summary-line">
+                                <span>GST (5% SGST + CGST):</span>
+                                <span id="summaryGst">₹0.00</span>
+                            </div>
+                            <div class="summary-line">
+                                <span>Service Charge (5%):</span>
+                                <span id="summaryServiceCharge">₹0.00</span>
+                            </div>
+                            <div class="summary-line total-line">
+                                <span>Total Payable:</span>
+                                <span class="total-val" id="summaryTotal">₹0.00</span>
+                            </div>
+                        </div>
+
+                        <!-- Action Buttons -->
+                        <div class="order-actions-row">
+                            <button class="btn-secondary" onclick="clearDraftOrder()">Clear</button>
+                            <button class="btn-primary" onclick="submitKOTOrder()">Punch KOT</button>
+                        </div>
+                        <div class="settle-bill-wrap">
+                            <button class="btn-settle" onclick="settleAndGenerateBill()">Settle & Print Bill</button>
                         </div>
                     </div>
                 </div>
 
-                <!-- Active Order Tracking Display -->
-                <div id="trackerDetailsArea">
-                    <div class="empty-state-card">
-                        <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#6B645B" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-                        <h3>No Active Order Found</h3>
-                        <p>Place an order from the Explore menu or enter your order number above.</p>
-                        <button class="secondary-btn" onclick="navigateTo('storefront')">Browse Menus</button>
-                    </div>
-                </div>
             </div>
         </section>
 
         <!-- ============================================================= -->
-        <!-- VIEW 3: ADMIN DASHBOARD                                       -->
+        <!-- VIEW 2: KITCHEN KOT BOARD (CONCURRENT MULTI-ORDER QUEUE)     -->
         <!-- ============================================================= -->
-        <section id="viewAdmin" class="app-view">
-            <div class="content-container admin-wrap">
-                <div class="admin-header-row">
-                    <div>
-                        <h1 class="admin-title">Store Operations & Analytics</h1>
-                        <p class="admin-subtitle">Live revenue matrix, active kitchen orders, and delivery fleet capacity.</p>
-                    </div>
-                    <button class="secondary-btn" onclick="refreshAdminDashboard()">Refresh Data</button>
+        <section id="viewKitchen" class="app-view">
+            <div class="view-header-bar">
+                <div>
+                    <h1 class="view-page-title">Live Kitchen KOT Board</h1>
+                    <p class="view-page-subtitle">Concurrent tracking of all active dining orders across tables (FIFO Circular Queue)</p>
                 </div>
+                <button class="btn-refresh" onclick="refreshActiveOrders()">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21.5 2v6h-6M2.5 22v-6h6M2 11.5a10 10 0 0 1 18.8-4.3M22 12.5a10 10 0 0 1-18.8 4.2"/></svg>
+                    <span>Refresh Tickets</span>
+                </button>
+            </div>
 
-                <!-- Summary Metrics Row -->
-                <div class="admin-metrics-grid" id="adminMetricsGrid">
-                    <!-- Dynamically generated -->
+            <div class="kot-board-grid" id="kotBoardGrid">
+                <!-- Multi-order tickets rendered dynamically -->
+            </div>
+        </section>
+
+        <!-- ============================================================= -->
+        <!-- VIEW 3: PAST BILLS & RECEIPTS ARCHIVE                         -->
+        <!-- ============================================================= -->
+        <section id="viewBills" class="app-view">
+            <div class="view-header-bar">
+                <div>
+                    <h1 class="view-page-title">Past Settled Bills & Invoices</h1>
+                    <p class="view-page-subtitle">Historical invoice register maintained in memory (STL Deque Archive with Reversal Check-Digit)</p>
                 </div>
+            </div>
 
-                <!-- Weekly Sales Heatmap Table -->
-                <div class="admin-card">
-                    <div class="admin-card-header">
-                        <div>
-                            <h2 class="admin-card-title">Weekly Revenue Matrix</h2>
-                            <p class="admin-card-desc">Daily sales performance broken down by restaurant partner.</p>
-                        </div>
-                    </div>
-                    <div class="table-scroller" id="salesMatrixContainer">
-                        <!-- Populated by JS -->
-                    </div>
+            <div class="bills-table-card">
+                <table class="data-table">
+                    <thead>
+                        <tr>
+                            <th>Bill #</th>
+                            <th>Invoice Code</th>
+                            <th>Table</th>
+                            <th>Guest Name</th>
+                            <th>Server</th>
+                            <th>Items</th>
+                            <th>Payment</th>
+                            <th>Total Amount</th>
+                            <th>Action</th>
+                        </tr>
+                    </thead>
+                    <tbody id="pastBillsTableBody">
+                        <!-- Populated dynamically via JS -->
+                    </tbody>
+                </table>
+            </div>
+        </section>
+
+        <!-- ============================================================= -->
+        <!-- VIEW 4: STAFF ATTENDANCE REGISTER & SHIFTS                   -->
+        <!-- ============================================================= -->
+        <section id="viewStaff" class="app-view">
+            <div class="view-header-bar">
+                <div>
+                    <h1 class="view-page-title">Staff Attendance & Shift Roster</h1>
+                    <p class="view-page-subtitle">Kitchen chefs, captains, table servers, and cashiers daily duty register</p>
                 </div>
+            </div>
 
-                <!-- Active Kitchen Queue Board -->
-                <div class="admin-card" style="margin-top: 32px;">
-                    <div class="admin-card-header">
-                        <div>
-                            <h2 class="admin-card-title">Kitchen Dispatch Board</h2>
-                            <p class="admin-card-desc">Orders currently in preparation or awaiting driver pickup.</p>
-                        </div>
-                        <button class="primary-action-btn" onclick="adminCookNextOrder()">Cook Next Order</button>
-                    </div>
-                    <div class="table-scroller" id="adminOrdersTableContainer">
-                        <!-- Orders Table -->
-                    </div>
+            <div class="staff-grid" id="staffGrid">
+                <!-- Populated dynamically via JS -->
+            </div>
+        </section>
+
+        <!-- ============================================================= -->
+        <!-- VIEW 5: SALES REPORTS & MATRIX ANALYTICS                     -->
+        <!-- ============================================================= -->
+        <section id="viewSales" class="app-view">
+            <div class="view-header-bar">
+                <div>
+                    <h1 class="view-page-title">Weekly Sales Matrix & Reports</h1>
+                    <p class="view-page-subtitle">2D Array Sales Matrix (6 Outlets x 7 Days) with row/column totals and peak analysis</p>
                 </div>
+            </div>
 
-                <!-- Delivery Fleet Status -->
-                <div class="admin-card" style="margin-top: 32px;">
-                    <div class="admin-card-header">
-                        <div>
-                            <h2 class="admin-card-title">Delivery Fleet Availability</h2>
-                            <p class="admin-card-desc">Active delivery partners and vehicle assignments.</p>
-                        </div>
-                    </div>
-                    <div class="riders-admin-grid" id="adminRidersGrid">
-                        <!-- Riders cards -->
-                    </div>
+            <!-- KPI Cards Row -->
+            <div class="kpi-cards-grid" id="salesKpisRow">
+                <div class="kpi-card">
+                    <span class="kpi-title">Weekly Grand Total</span>
+                    <span class="kpi-value" id="kpiGrandTotal">₹0</span>
+                    <span class="kpi-sub">Across all 6 kitchen outlets</span>
                 </div>
-
-                <!-- Kitchen Inventory & Restock Control (Feature 2) -->
-                <div class="admin-card" style="margin-top: 32px;">
-                    <div class="admin-card-header">
-                        <div>
-                            <h2 class="admin-card-title">Inventory Restock & Stock Controls</h2>
-                            <p class="admin-card-desc">Replenish stock units for kitchen catalog items.</p>
-                        </div>
-                    </div>
-                    <div class="restock-admin-form">
-                        <select id="adminRestockSelect" class="drawer-select" style="max-width: 340px;"></select>
-                        <input type="number" id="adminRestockQty" class="search-bar-input" style="width: 100px; height: 38px; padding: 0 12px;" value="20" min="1">
-                        <button class="primary-action-btn" onclick="adminRestockItem()">Restock Units</button>
-                    </div>
+                <div class="kpi-card">
+                    <span class="kpi-title">Peak Sales Slot</span>
+                    <span class="kpi-value" id="kpiPeakAmount">₹0</span>
+                    <span class="kpi-sub" id="kpiPeakSlot">Outlet & Day</span>
                 </div>
+                <div class="kpi-card">
+                    <span class="kpi-title">Average Daily Sales</span>
+                    <span class="kpi-value" id="kpiAvgDaily">₹0</span>
+                    <span class="kpi-sub">7-Day Moving Baseline</span>
+                </div>
+            </div>
 
-                <!-- Delivery Zone Distance Reference -->
-                <div class="admin-card" style="margin-top: 32px;">
-                    <div class="admin-card-header">
-                        <div>
-                            <h2 class="admin-card-title">Inter-Zone Distance Matrix (Kilometres)</h2>
-                            <p class="admin-card-desc">Used for calculating transparent delivery transit fees and estimated arrival times.</p>
-                        </div>
-                    </div>
-                    <div class="table-scroller" id="distanceMatrixContainer">
-                        <!-- Distance table -->
-                    </div>
+            <!-- 2D Sales Matrix Table -->
+            <div class="sales-matrix-card">
+                <h3 class="card-section-title">6 Outlets × 7 Days Sales Revenue Matrix (₹)</h3>
+                <div class="table-responsive">
+                    <table class="matrix-table" id="salesMatrixTable">
+                        <!-- Populated dynamically -->
+                    </table>
                 </div>
             </div>
         </section>
 
     </main>
 
-    <!-- ================================================================= -->
-    <!-- SLIDE-OVER CART DRAWER                                            -->
-    <!-- ================================================================= -->
-    <div id="cartDrawerOverlay" class="drawer-overlay" onclick="toggleCartDrawer(false)"></div>
-    <aside id="cartDrawer" class="cart-drawer" aria-label="Shopping Bag">
-        <div class="drawer-header">
-            <div class="drawer-title-group">
-                <h2 class="drawer-title">Your Order</h2>
-                <span class="drawer-count-chip" id="drawerItemCount">0 items</span>
+    <!-- ============================================================= -->
+    <!-- THERMAL RECEIPT PRINT MODAL                                   -->
+    <!-- ============================================================= -->
+    <div id="receiptModal" class="modal-backdrop" style="display: none;">
+        <div class="modal-box modal-receipt-box">
+            <div class="modal-header">
+                <h3 class="modal-title">Official Tax Invoice & Thermal Receipt</h3>
+                <button class="modal-close-btn" onclick="closeReceiptModal()">✕</button>
             </div>
-            <button class="drawer-close-btn" onclick="toggleCartDrawer(false)" aria-label="Close bag">✕</button>
-        </div>
-
-        <!-- Drawer Content -->
-        <div class="drawer-body" id="cartDrawerBody">
-            <div class="drawer-empty-state">
-                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#6B645B" stroke-width="1.4"><circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/></svg>
-                <p>Your bag is empty.</p>
-                <span>Add delicious dishes from our partner kitchens!</span>
+            <div class="modal-body">
+                <pre class="thermal-receipt-paper" id="thermalReceiptContent">
+                <!-- ASCII receipt content -->
+                </pre>
             </div>
-        </div>
-
-        <!-- Drawer Footer (Checkout Details) -->
-        <div class="drawer-footer" id="cartDrawerFooter" style="display: none;">
-            <!-- Undo Bar in Cart -->
-            <div class="drawer-undo-bar">
-                <button class="drawer-undo-action" onclick="cartUndo()">
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 7v6h6"/><path d="M21 17a9 9 0 0 0-9-9 9 9 0 0 0-6 2.3L3 13"/></svg>
-                    <span>Undo Last Edit</span>
-                </button>
-                <button class="drawer-clear-action" onclick="cartClear()">Clear All</button>
-            </div>
-
-            <!-- Delivery Zone and Options -->
-            <div class="drawer-config-group">
-                <label class="drawer-label">Delivery Destination</label>
-                <select id="cartZoneSelect" class="drawer-select" onchange="refreshCartView()">
-                    <option value="0">Central Zone</option>
-                    <option value="1">North Zone</option>
-                    <option value="2">South Zone</option>
-                    <option value="3">East Zone</option>
-                    <option value="4">West Zone</option>
-                </select>
-
-                <label class="drawer-checkbox-row">
-                    <input type="checkbox" id="cartExpressCheckbox" onchange="refreshCartView()">
-                    <span>
-                        <strong>Express Priority (₹45)</strong>
-                        <small>Kitchen preps first · Priority courier assignment</small>
-                    </span>
-                </label>
-            </div>
-
-            <!-- Promo Coupon -->
-            <div class="drawer-promo-group">
-                <div class="promo-input-wrap">
-                    <input type="text" id="drawerCouponInput" placeholder="Promo code (e.g. FIRST50)" onkeyup="if(event.key==='Enter') applyCoupon()">
-                    <button class="promo-apply-btn" onclick="applyCoupon()">Apply</button>
-                </div>
-            </div>
-
-            <!-- Bill Breakdown -->
-            <div class="drawer-bill-summary">
-                <div class="bill-line"><span>Item Subtotal</span><span id="billSubtotal">₹0.00</span></div>
-                <div class="bill-line text-success" id="billDiscountRow" style="display: none;">
-                    <span>Promotion Discount</span><span id="billDiscount">-₹0.00</span>
-                </div>
-                <div class="bill-line"><span>Taxes & Packaging (5% GST)</span><span id="billTax">₹0.00</span></div>
-                <div class="bill-line"><span>Delivery Fee</span><span id="billDelivery">₹0.00</span></div>
-                <div class="bill-divider"></div>
-                <div class="bill-line total-line"><span>To Pay</span><span id="billTotal">₹0.00</span></div>
-            </div>
-
-            <!-- Customer Details for Checkout -->
-            <div class="drawer-customer-fields">
-                <input type="text" id="checkoutCustName" placeholder="Your Name" value="Aarav Sharma">
-                <input type="text" id="checkoutCustStreet" placeholder="Delivery Street & Flat" value="42 Residency Road">
-            </div>
-
-            <button class="drawer-checkout-btn" onclick="submitCheckout()">
-                <span>Place Order</span>
-                <span id="btnPayAmount">₹0.00</span>
-            </button>
-        </div>
-    </aside>
-
-    <!-- ================================================================= -->
-    <!-- VIVA EXAMINER MODAL (Opened only via 'V' or 'For examiners' link) -->
-    <!-- ================================================================= -->
-    <div id="vivaModalOverlay" class="viva-modal-overlay" style="display: none;" onclick="closeVivaModal()">
-        <div class="viva-modal" onclick="event.stopPropagation()">
-            <div class="viva-modal-header">
-                <div>
-                    <span class="viva-modal-tag">CS SYLLABUS INSPECTION</span>
-                    <h2 class="viva-modal-title" id="vivaModalTitle">Examiner Workbench</h2>
-                </div>
-                <div class="viva-tab-switches">
-                    <button class="viva-tab-btn active" id="vtab-inspector" onclick="switchVivaTab('inspector')">Memory Inspector</button>
-                    <button class="viva-tab-btn" id="vtab-benchmarks" onclick="switchVivaTab('benchmarks')">Benchmarks</button>
-                    <button class="viva-tab-btn" id="vtab-map" onclick="switchVivaTab('map')">Module Map</button>
-                </div>
-                <button class="viva-close-btn" onclick="closeVivaModal()">✕</button>
-            </div>
-
-            <div class="viva-modal-body">
-                <!-- VIVA TAB 1: INSPECTOR -->
-                <div id="vivaPaneInspector" class="viva-pane active">
-                    <div class="viva-grid">
-                        <div class="viva-card">
-                            <div class="viva-card-header">
-                                <h3>Module VIII: Hand-crafted Array Stack</h3>
-                                <span class="viva-chip" id="vivaStackCount">Depth: 0/50</span>
-                            </div>
-                            <p class="viva-card-desc">Contiguous raw 1D array managed via <code>topIndex</code>. Used for Cart Undo history (LIFO).</p>
-                            <div class="viva-stack-container" id="vivaStackView">
-                                <div class="empty-viva">Stack is empty. Add or remove items in cart to see frames pushed here.</div>
-                            </div>
-                        </div>
-
-                        <div class="viva-card">
-                            <div class="viva-card-header">
-                                <h3>Module IX: Hand-crafted Circular Queue</h3>
-                                <span class="viva-chip" id="vivaQueueCount">Length: 0/50</span>
-                            </div>
-                            <p class="viva-card-desc">Fixed circular buffer with modulo arithmetic <code>(rear + 1) % CAPACITY</code>. Used for Kitchen FIFO dispatch.</p>
-                            <div class="viva-queue-container" id="vivaQueueView">
-                                <div class="empty-viva">Queue is empty. Place an order to see circular buffer slots.</div>
-                            </div>
-                        </div>
-
-                        <div class="viva-card">
-                            <div class="viva-card-header">
-                                <h3>Module VIII: Recently Viewed Stack</h3>
-                                <span class="viva-chip" id="vivaRecentCount">0 items</span>
-                            </div>
-                            <p class="viva-card-desc">LIFO memory tracking recently searched and inspected menu items.</p>
-                            <div id="vivaRecentView">
-                                <div class="empty-viva">No items viewed yet.</div>
-                            </div>
-                        </div>
-
-                        <div class="viva-card">
-                            <div class="viva-card-header">
-                                <h3>Module X: Standard Template Library (STL) Registry</h3>
-                            </div>
-                            <p class="viva-card-desc">Active STL containers in C++ engine memory.</p>
-                            <div id="vivaStlView" style="font-family: var(--font-mono); font-size: 13px; line-height: 1.8;">
-                                Loading STL state...
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <!-- VIVA TAB 2: BENCHMARKS -->
-                <div id="vivaPaneBenchmarks" class="viva-pane">
-                    <div class="viva-bench-actions">
-                        <button class="primary-action-btn" onclick="runVivaBenchmark()">Run Asymptotic Benchmark (Module VII)</button>
-                        <button class="secondary-btn" onclick="runVivaCompareDS()">Compare Array DS vs STL (Module X)</button>
-                    </div>
-
-                    <div id="vivaBenchmarkOutput" style="margin-top: 20px;">
-                        <p class="text-muted">Click a benchmark button above to execute high-resolution C++ chrono timing.</p>
-                    </div>
-                </div>
-
-                <!-- VIVA TAB 3: MODULE MAP -->
-                <div id="vivaPaneMap" class="viva-pane">
-                    <div class="table-scroller">
-                        <table class="viva-table">
-                            <thead>
-                                <tr>
-                                    <th>Module</th>
-                                    <th>Topic</th>
-                                    <th>Feature Implementation</th>
-                                    <th>Data Structure / Algorithm</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <tr>
-                                    <td><strong>Module I</strong></td>
-                                    <td>Basics & Math</td>
-                                    <td>Bill Calculation, GST Tax (5%), Delivery distance fees</td>
-                                    <td><code>static_cast</code>, bitwise dietary flags (Spicy, GlutenFree, ChefSpecial)</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Module II</strong></td>
-                                    <td>Control & Functions</td>
-                                    <td>Command Dispatcher, Currency formatting overloads</td>
-                                    <td>Pass-by-reference bounds guards, switch/ladder dispatcher</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Module III</strong></td>
-                                    <td>1D Arrays</td>
-                                    <td>Menu prices, ratings, and stock analytics</td>
-                                    <td>Sum, Min, Max, Linear Search, Bubble Sort on prices array</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Module IV</strong></td>
-                                    <td>2D Arrays</td>
-                                    <td>6x7 Sales Revenue Matrix & 5x5 Zone Distance Lookup</td>
-                                    <td>Row sums (restaurant weekly totals), col sums (daily platform totals)</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Module V</strong></td>
-                                    <td>Strings</td>
-                                    <td>Dish search, Levenshtein "Did you mean", Tracking code check digit</td>
-                                    <td>Substring matcher, string reversal check digit generator</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Module VI</strong></td>
-                                    <td>Structures</td>
-                                    <td>MenuItem, Restaurant, Order, Address, Rider models</td>
-                                    <td>Nested structs, fixed arrays of structs, JSON serialization methods</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Module VII</strong></td>
-                                    <td>Performance</td>
-                                    <td>Stopwatch benchmarks: Linear vs Binary search, Bubble vs Introsort</td>
-                                    <td>O(N) vs O(log N) on 30k elements, O(N²) vs O(N log N) sort</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Module VIII</strong></td>
-                                    <td>Stack</td>
-                                    <td>Cart Undo History & Recently Viewed dishes</td>
-                                    <td>Hand-crafted fixed array stack with <code>topIndex</code> LIFO pop/push</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Module IX</strong></td>
-                                    <td>Queue</td>
-                                    <td>Kitchen Order Queue, Express Priority, Rider circular rotation</td>
-                                    <td>Hand-crafted circular queue with modulo wrap-around arithmetic</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Module X</strong></td>
-                                    <td>STL</td>
-                                    <td>std::map (coupons), std::set (cuisines), std::vector, std::deque</td>
-                                    <td>Side-by-side performance comparison against custom array structures</td>
-                                </tr>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
+            <div class="modal-footer">
+                <button class="btn-secondary" onclick="closeReceiptModal()">Close</button>
+                <button class="btn-primary" onclick="printReceiptToWindow()">Print Receipt (PDF)</button>
             </div>
         </div>
     </div>
 
-    <!-- UNDO TOAST NOTIFICATION -->
-    <div id="undoToast" class="undo-toast">
-        <div class="undo-toast-content">
-            <span id="undoToastMsg">Item updated in your bag</span>
-            <button class="undo-toast-btn" onclick="cartUndo()">Undo</button>
+    <!-- ============================================================= -->
+    <!-- VIVA / EXAMINER MODAL                                         -->
+    <!-- ============================================================= -->
+    <div id="vivaModal" class="modal-backdrop" style="display: none;">
+        <div class="modal-box modal-viva-box">
+            <div class="modal-header">
+                <h3 class="modal-title" id="vivaModalTitle">Engine Viva Inspector</h3>
+                <button class="modal-close-btn" onclick="closeVivaModal()">✕</button>
+            </div>
+            <div class="modal-body" id="vivaModalBody">
+                <!-- Loaded dynamically based on tab -->
+            </div>
         </div>
     </div>
 
     <!-- SITE FOOTER -->
     <footer class="site-footer">
         <div class="footer-container">
-            <div class="footer-brand">
-                <span class="brand-name">FoodRush</span>
-                <p class="footer-tagline">Delicious food, thoughtfully prepared and promptly delivered.</p>
+            <div class="footer-left">
+                <span class="footer-text">FoodRush POS Engine · High-Performance C++ Architecture</span>
             </div>
-
-            <div class="footer-bottom">
-                <span>© 2026 FoodRush Technologies. All rights reserved.</span>
-                <!-- Examiner link toggles Viva Mode discreetly -->
-                <button class="examiner-link" onclick="toggleVivaMode()">For examiners</button>
+            <div class="footer-right">
+                <button class="footer-link-subtle" onclick="toggleVivaMode(true)" title="Examiner Viva Mode (Hot-key: V)">For examiners</button>
             </div>
         </div>
     </footer>
-
-    <!-- RATING MODAL (Feature 3) -->
-    <div id="ratingModalOverlay" class="drawer-overlay" style="display:none;" onclick="closeRatingModal()"></div>
-    <div id="ratingModal" class="viva-modal" style="display:none; max-width:400px; z-index:1001; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); box-shadow:var(--shadow-elevated);" onclick="event.stopPropagation()">
-        <div class="viva-modal-header">
-            <div>
-                <span class="viva-modal-tag" style="background:#FFF9E6; color:#8C6200;">CUSTOMER REVIEW</span>
-                <h3 class="viva-modal-title" id="ratingDishName" style="font-size:18px;">Rate Dish</h3>
-            </div>
-            <button class="drawer-close-btn" onclick="closeRatingModal()">✕</button>
-        </div>
-        <div style="padding: 24px; text-align: center;">
-            <p style="font-size: 13.5px; color: var(--text-muted); margin-bottom: 16px;">How delicious was this preparation?</p>
-            <div style="display: flex; justify-content: center; gap: 8px; font-size: 32px; color: #D9822B; cursor: pointer;" id="starRatingRow">
-                <span onclick="submitRating(1)" title="1 Star" style="transition:transform 0.1s;" onmouseover="this.style.transform='scale(1.2)'" onmouseout="this.style.transform='scale(1)'">★</span>
-                <span onclick="submitRating(2)" title="2 Stars" style="transition:transform 0.1s;" onmouseover="this.style.transform='scale(1.2)'" onmouseout="this.style.transform='scale(1)'">★</span>
-                <span onclick="submitRating(3)" title="3 Stars" style="transition:transform 0.1s;" onmouseover="this.style.transform='scale(1.2)'" onmouseout="this.style.transform='scale(1)'">★</span>
-                <span onclick="submitRating(4)" title="4 Stars" style="transition:transform 0.1s;" onmouseover="this.style.transform='scale(1.2)'" onmouseout="this.style.transform='scale(1)'">★</span>
-                <span onclick="submitRating(5)" title="5 Stars" style="transition:transform 0.1s;" onmouseover="this.style.transform='scale(1.2)'" onmouseout="this.style.transform='scale(1)'">★</span>
-            </div>
-            <div style="margin-top: 14px; font-size: 12px; color: var(--text-muted);">Click a star from 1 to 5 to record review in engine</div>
-        </div>
-    </div>
 
     <script src="app.js"></script>
 </body>

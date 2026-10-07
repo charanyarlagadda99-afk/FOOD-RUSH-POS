@@ -1,80 +1,59 @@
-# FoodRush - System Overview & Architecture
+# FoodRush / RestoRush - Restaurant, Hotel & Cafe POS Engine
 
-## 1. What FoodRush Is
-**FoodRush** is a full-stack, high-performance food delivery platform designed to showcase real-world systems programming, data structures, and algorithms for second-year Computer Science coursework and university viva voce examinations.
+## 1. What FoodRush POS Is
+**FoodRush POS** is an enterprise-grade Restaurant, Hotel & Cafe Point-of-Sale (POS) and operations backend engine engineered in high-performance C++ (CS Syllabus Modules I-X). Inspired by commercial POS architectures (such as Toast POS, Petpooja, and Lightspeed), it serves as a central hospitality management platform for dine-in operations within a hotel or restaurant building.
 
-The platform provides a complete end-to-end food ordering workflow:
-- **Customers**: Browse partner restaurants across culinary traditions, search dishes with fuzzy "did you mean" corrections, view Top-Rated dishes, customize their cart, undo accidental additions with a single click, submit verified dish ratings, and checkout with zone-based delivery calculation and express priority.
-- **Order Tracking**: Track orders through a live 4-stage pipeline (Confirmed ➔ In Kitchen ➔ Out for Delivery ➔ Delivered) using tamper-proof tracking codes secured with string-reversal check digits.
-- **Kitchens**: Receive incoming orders into a circular priority queue where express orders jump ahead of standard orders without starving the FIFO queue, with atomic real-time inventory locking and restocking.
-- **Delivery Fleet**: Manage delivery riders with greedy nearest-neighbor spatial dispatch across a 5×5 distance matrix with vehicle speed multipliers.
-- **Admin Operations**: View platform-wide metrics, a 6×7 restaurant revenue matrix, daily sales volume, delivery fleet availability, inventory restock tools, and 1D price/rating analytics.
-
----
-
-## 2. Five-Person Capstone Project Architecture
-FoodRush is partitioned cleanly across five specialized engineering modules:
-1. **Catalog & Search Specialist (Member 1)**: Unified 48-item catalog, case-insensitive string search, $O(L_1 \cdot L_2)$ Levenshtein distance Did You Mean suggestion.
-2. **Cart & State Specialist (Member 2)**: Hand-crafted `ArrayStack` LIFO undo/redo mechanism, two-pointer palindrome coupon validator, `std::map` promo discount engine.
-3. **Kitchen Pipeline Specialist (Member 3)**: Ring buffer `CircularQueue` order FIFO, express priority scheduling, 4-stage order lifecycle, tracking code check-digit generator.
-4. **Fleet Dispatch Specialist (Member 4 - Feature 1)**: Inter-zone spatial routing, greedy nearest-rider selection via $5 \times 5$ distance matrix, dynamic vehicle speed multipliers.
-5. **Inventory Lock & Feedback Specialist (Member 5 - Features 2 & 3)**: Two-phase stock reservation (`reservedStock`), atomic restock, customer rating feedback with running average, $O(N \log K)$ Top-K dish leaderboard.
+### Core Capabilities:
+1. **Multi-Table Dine-In Management**: 12 tables mapped across 4 dining sections (Main Dining Hall, AC Family Lounge, Rooftop Terrace, Garden Lounge & Banquet) with real-time status tracking (`VACANT` vs `OCCUPIED`).
+2. **Concurrent Multi-Order Kitchen KOT Board**: Real-time kitchen queue displaying multiple active dining table tickets simultaneously, powered by a custom FIFO `CircularQueue` and priority express lane.
+3. **Itemized GST Invoicing & Thermal Receipt Printing**: Automatic computation of 5% GST (SGST+CGST), 5% Service Charge, coupon discounts, and generation of formatted monospaced thermal paper receipts (with string-reversal check-digit validation).
+4. **Settled Past Bills Archive**: High-capacity historical invoice archive managed with `std::deque`, allowing immediate retrieval and thermal reprinting.
+5. **Staff Attendance & Shift Register**: Daily clock-in/out duty register for 8 staff members across morning, evening, and full-day shifts.
+6. **Weekly Sales Analytics Matrix**: $6 \text{ Kitchen Outlets} \times 7 \text{ Days}$ revenue matrix with row/column total aggregations and peak-sales slot detection.
 
 ---
 
-## 2. The Dual-Surface Design Concept
-FoodRush is built with two distinct, purposefully separated surfaces:
-
-### Surface 1: The Commercial Storefront & Admin Portal (Default)
-To any customer or restaurant manager, FoodRush looks, feels, and operates like a polished, modern food delivery service:
-- **Editorial Design System**: Warm paper canvas (`#FBF9F6`), clean card elevations, deep obsidian typography with Fraunces serif headings and Inter body text, terracotta accents (`#D9531E`), and sage green status badges (`#2F7D5B`).
-- **Zero Academic Jargon**: The customer experience contains **zero leaks** of internal implementation details. The words "C++", "engine", "Module", "array", "stack", "queue", or "STL" never appear anywhere on the customer or admin interface.
-- **Instant Micro-interactions**: Slide-over cart drawer with quantity steppers, undo toast notifications, live order tracking stepper, and responsive restaurant tabs.
-
-### Surface 2: The Viva Mode (For Examiners & Students)
-Designed exclusively for university professors and technical demonstrations:
-- **Discreet Activation**: Opened only by pressing the keyboard shortcut `V` or clicking the subtle "For examiners" link in the footer. Off by default.
-- **Live CS Inspection**:
-  - **Module Badges**: Every user action and API response highlights which of the 10 CS syllabus modules executed the command.
-  - **Memory & DS Inspector**: Visualizes internal C++ memory state—hand-crafted `ArrayStack` frames with `topIndex`, `CircularQueue` front/rear ring buffer indices, and STL container sizes.
-  - **Real Stopwatch Benchmarks**: Live microsecond execution comparisons ($O(N)$ vs $O(\log N)$ search, $O(N^2)$ vs $O(N \log N)$ sort).
-  - **Interactive Module Guide**: Full mapping of all 10 syllabus modules directly linked to source code and demonstration steps.
+## 2. Five-Person Capstone Architecture
+FoodRush POS is partitioned cleanly across five specialized engineering modules:
+1. **Catalog & Search Specialist (Member 1)**: 48-item multi-outlet catalog, tokenized case-insensitive search, and $O(L_1 \cdot L_2)$ dynamic programming Levenshtein distance "Did You Mean" engine.
+2. **Table Order & Billing Specialist (Member 2)**: Dine-in table lifecycle, hand-crafted `ArrayStack` LIFO undo history for table modifications, and `std::map` discount promo engine.
+3. **Kitchen KOT Pipeline Specialist (Member 3)**: Multi-ticket concurrent kitchen board, custom `CircularQueue` ring buffer with modulo arithmetic, and VIP/Express priority scheduling.
+4. **Invoicing & Past Bills Archive Specialist (Member 4)**: Itemized GST & Service Charge calculation, check-digit invoice generation using string reversal, formatted ASCII thermal receipt formatter, and `std::deque` past bills archive.
+5. **Staff Register & Matrix Analytics Specialist (Member 5)**: Staff duty attendance register, $6 \times 7$ 2D weekly revenue matrix with row/column traversals, and $O(N \log K)$ Top-K dish rankings.
 
 ---
 
-## 3. How FoodRush Works (The Architecture Flow)
+## 3. The Dual-Surface Design Concept
+FoodRush POS implements a strict dual-surface architectural pattern:
+- **Commercial POS Surface (Default)**: Clean, editorial hospitality interface for cashiers, waitstaff, and chefs. Never exposes academic jargon or implementation details.
+- **Examiner Viva Mode (Hot-key: 'V')**: Revealed only for examiners and university professors. Displays live internal engine memory buffers (`ArrayStack` capacity, `CircularQueue` ring pointers, 1D array stats), stopwatch benchmarks, and module badges on every action.
 
+---
+
+## 4. End-to-End Architectural Flow
 ```
-[ Customer / Admin Browser ]
+[ Cashier / Waiter / Kitchen Browser ]
        │
        ▼  HTTP / REST API (JSON)
 [ Node.js Bridge Server ] (server/server.js)
-       │  - Spawns C++ child process once on startup
-       │  - Line-oriented protocol over persistent stdin/stdout
+       │  - Persistent process supervisor
+       │  - Zero-latency line protocol over stdin/stdout
        ▼
-[ C++ High-Performance Engine ] (foodrush_engine.exe)
-   ├── Module I    : Basics (Constants, Type Conversion, Bitwise Dietary Flags)
-   ├── Module II   : Control Statements & Functions (Command Dispatcher)
-   ├── Module III  : 1D Arrays (Ratings, Prices, Stock, Sum/Min/Max/Bubble Sort)
-   ├── Module IV   : 2D Arrays (6x7 Sales Matrix & 5x5 Zone Distance Matrix)
-   ├── Module V    : Strings (Levenshtein Distance, Tokenizer, Reversal Check Digit)
-   ├── Module VI   : Structures (Address, MenuItem, Restaurant, Order, Rider)
-   ├── Module VII  : Performance (Timed Stopwatch Benchmarks, Big-O Comparisons)
-   ├── Module VIII : Hand-Crafted Array Stack (Cart Undo & Recently Viewed)
-   ├── Module IX   : Hand-Crafted Circular Queue (Kitchen Dispatch & Rider Rotation)
-   └── Module X    : Standard Template Library (std::map, set, vector, deque, stack, queue)
+[ C++ POS Core Engine ] (foodrush_engine.exe)
+   ├── Module I    : Financial Constants, GST/Service Rates, Type Conversion
+   ├── Module II   : Command Dispatcher, Function Overloading
+   ├── Module III  : 1D Arrays (Prices, Stock, Ratings, Staff Roster)
+   ├── Module IV   : 2D Arrays (6x7 Weekly Sales Matrix, Table Layout)
+   ├── Module V    : Strings (Levenshtein Fuzzy Match, Check-Digit Reversal)
+   ├── Module VI   : Structures (Table, StaffMember, OrderTicket, BillReceipt)
+   ├── Module VII  : Performance (Stopwatch Benchmarks, O(N log K) Ranking)
+   ├── Module VIII : Hand-Crafted ArrayStack (Table Order Action Undo)
+   ├── Module IX   : Hand-Crafted CircularQueue (Multi-Ticket Kitchen KOT)
+   └── Module X    : STL Containers (std::deque, std::map, std::set, std::vector)
 ```
-
-### End-to-End Request Pipeline
-1. **User Action**: The customer clicks "+ Add" on a dish, adjusts quantities, or applies a coupon.
-2. **Web Bridge**: The browser issues a `POST /api/cart/add` or `POST /api/checkout` request.
-3. **IPC Command Execution**: `server/server.js` formats the request into a single newline-delimited command string (e.g. `CART_ADD 101 2`) and writes it to the C++ process `stdin`.
-4. **Deterministic Engine Logic**: The C++ engine processes the command in-memory using low-level arrays, structs, and algorithms, serializes the response to a single JSON line, tags it with the active syllabus modules (e.g. `["I", "VI", "VIII"]`), and writes it to `stdout`.
-5. **UI Update**: The web UI receives the JSON response in under **2 milliseconds**, updates the UI state, and (if Viva Mode is active) flashes the corresponding module badges.
 
 ---
 
-## 4. Why C++ is the Backend Engine
-1. **Deterministic Memory & Zero Garbage Collection**: Real-world dispatch and matching engines require predictable latency. Contiguous arrays and struct buffers in C++ execute without runtime garbage collection pauses.
-2. **Pedagogical Integrity**: Rather than hiding data structures behind high-level language wrappers, students write raw `ArrayStack` and `CircularQueue` implementations with pointer bounds checks and modulo wrap-around arithmetic.
-3. **High-Efficiency IPC**: The native C++ binary communicates with Node.js via lightweight local pipes, completing end-to-end round-trips in ~1.85 ms while consuming negligible system resources.
+## 5. Why C++ is the Engine
+1. **Deterministic Latency & Cache Locality**: Hotel and restaurant POS systems require sub-millisecond deterministic response times without garbage collection spikes. Contiguous memory arrays and fixed-capacity structs ensure instant throughput.
+2. **Pedagogical Purity**: Directly implements foundational data structures (`ArrayStack`, `CircularQueue`, 2D Matrices) without hiding logic behind black-box libraries, making it effortless to defend in university viva voce examinations.

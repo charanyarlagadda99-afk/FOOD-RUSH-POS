@@ -87,25 +87,15 @@
 
                     <!-- Cuisine Filter Chips -->
                     <div class="cuisine-chips-row">
-                        <button class="cuisine-chip active" onclick="selectCuisineFilter('All')">All Cuisines</button>
+                        <button class="cuisine-chip active" id="chipAll" onclick="selectCuisineFilter('All')">All Cuisines</button>
                         <button class="cuisine-chip" onclick="selectCuisineFilter('Biryani')">Biryani</button>
                         <button class="cuisine-chip" onclick="selectCuisineFilter('South Indian')">South Indian</button>
                         <button class="cuisine-chip" onclick="selectCuisineFilter('Artisan Italian')">Artisan Italian</button>
                         <button class="cuisine-chip" onclick="selectCuisineFilter('Japanese')">Japanese</button>
                         <button class="cuisine-chip" onclick="selectCuisineFilter('American Gourmet')">Burgers</button>
                         <button class="cuisine-chip" onclick="selectCuisineFilter('Desserts & Bakery')">Desserts</button>
+                        <button class="cuisine-chip" id="chipTopRated" onclick="selectTopRatedFilter()" style="border-color:#E2B842; color:#8C6200;">★ Top Rated</button>
                     </div>
-                </div>
-            </section>
-
-            <!-- SEARCH RESULTS OVERLAY (When searching) -->
-            <section id="searchResultsSection" class="content-container search-results-container" style="display: none;">
-                <div class="results-header-bar">
-                    <h2 class="section-heading" id="searchResultsHeading">Search Results</h2>
-                    <button class="text-link-btn" onclick="clearSearch()">View all kitchens</button>
-                </div>
-                <div class="dishes-grid" id="searchResultsGrid">
-                    <!-- Populated via search -->
                 </div>
             </section>
 
@@ -125,7 +115,10 @@
             <section id="menuSection" class="content-container" style="margin-top: 48px;">
                 <div class="menu-header-bar">
                     <div>
-                        <h2 class="section-heading" id="menuRestaurantName">All Dishes</h2>
+                        <div style="display:flex; align-items:center; gap:12px;">
+                            <h2 class="section-heading" id="menuRestaurantName">All Dishes</h2>
+                            <button id="menuResetBtn" class="text-link-btn" onclick="clearSearch()" style="display:none; font-size:13px; color:var(--accent); background:none; border:none; cursor:pointer; text-decoration:underline;">Show All Dishes</button>
+                        </div>
                         <span class="section-meta" id="menuRestaurantMeta">Showing freshly prepared specialities</span>
                     </div>
                     <div class="dietary-filters">
@@ -230,6 +223,21 @@
                     </div>
                     <div class="riders-admin-grid" id="adminRidersGrid">
                         <!-- Riders cards -->
+                    </div>
+                </div>
+
+                <!-- Kitchen Inventory & Restock Control (Feature 2) -->
+                <div class="admin-card" style="margin-top: 32px;">
+                    <div class="admin-card-header">
+                        <div>
+                            <h2 class="admin-card-title">Inventory Restock & Stock Controls</h2>
+                            <p class="admin-card-desc">Replenish stock units for kitchen catalog items.</p>
+                        </div>
+                    </div>
+                    <div class="restock-admin-form">
+                        <select id="adminRestockSelect" class="drawer-select" style="max-width: 340px;"></select>
+                        <input type="number" id="adminRestockQty" class="search-bar-input" style="width: 100px; height: 38px; padding: 0 12px;" value="20" min="1">
+                        <button class="primary-action-btn" onclick="adminRestockItem()">Restock Units</button>
                     </div>
                 </div>
 
@@ -519,6 +527,29 @@
             </div>
         </div>
     </footer>
+
+    <!-- RATING MODAL (Feature 3) -->
+    <div id="ratingModalOverlay" class="drawer-overlay" style="display:none;" onclick="closeRatingModal()"></div>
+    <div id="ratingModal" class="viva-modal" style="display:none; max-width:400px; z-index:1001; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); box-shadow:var(--shadow-elevated);" onclick="event.stopPropagation()">
+        <div class="viva-modal-header">
+            <div>
+                <span class="viva-modal-tag" style="background:#FFF9E6; color:#8C6200;">CUSTOMER REVIEW</span>
+                <h3 class="viva-modal-title" id="ratingDishName" style="font-size:18px;">Rate Dish</h3>
+            </div>
+            <button class="drawer-close-btn" onclick="closeRatingModal()">✕</button>
+        </div>
+        <div style="padding: 24px; text-align: center;">
+            <p style="font-size: 13.5px; color: var(--text-muted); margin-bottom: 16px;">How delicious was this preparation?</p>
+            <div style="display: flex; justify-content: center; gap: 8px; font-size: 32px; color: #D9822B; cursor: pointer;" id="starRatingRow">
+                <span onclick="submitRating(1)" title="1 Star" style="transition:transform 0.1s;" onmouseover="this.style.transform='scale(1.2)'" onmouseout="this.style.transform='scale(1)'">★</span>
+                <span onclick="submitRating(2)" title="2 Stars" style="transition:transform 0.1s;" onmouseover="this.style.transform='scale(1.2)'" onmouseout="this.style.transform='scale(1)'">★</span>
+                <span onclick="submitRating(3)" title="3 Stars" style="transition:transform 0.1s;" onmouseover="this.style.transform='scale(1.2)'" onmouseout="this.style.transform='scale(1)'">★</span>
+                <span onclick="submitRating(4)" title="4 Stars" style="transition:transform 0.1s;" onmouseover="this.style.transform='scale(1.2)'" onmouseout="this.style.transform='scale(1)'">★</span>
+                <span onclick="submitRating(5)" title="5 Stars" style="transition:transform 0.1s;" onmouseover="this.style.transform='scale(1.2)'" onmouseout="this.style.transform='scale(1)'">★</span>
+            </div>
+            <div style="margin-top: 14px; font-size: 12px; color: var(--text-muted);">Click a star from 1 to 5 to record review in engine</div>
+        </div>
+    </div>
 
     <script src="app.js"></script>
 </body>

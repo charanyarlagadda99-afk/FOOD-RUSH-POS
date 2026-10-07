@@ -1,6 +1,10 @@
 // ============================================================================
 // FoodRush - High-Performance C++ Core Engine
 // Full Implementation of CS Syllabus Modules I-X
+// + 3 Enterprise Backend Systems:
+//   1. Smart Fleet Dispatch & Zone Routing (Nearest Available Rider Allocation)
+//   2. Real-Time Inventory & Stock Lock Engine (Atomic Reservation & Restock)
+//   3. Customer Rating System & Top-K Ranking Engine (Leaderboard via Partial Sort)
 // ============================================================================
 
 #include <iostream>
@@ -47,10 +51,10 @@ CircularQueue<int, MAX_RIDERS> gAvailableRiderQueue;
 // [MODULE IV] 2D Array Manager for Sales Matrix and Distance Lookup
 SalesMatrixManager gSalesMatrix;
 
-// [MODULE X] STL Manager for Maps, Sets, Vectors, Deques, and STL Stacks/Queues
+// [MODULE X] STL Manager for Maps, Sets, Vectors, Deques, and Stacks/Queues
 STLManager gSTLManager;
 
-// Current Active Shopping Cart State
+// Active Shopping Cart State
 CartItem gCartItems[MAX_CART_ITEMS];
 int gCartCount = 0;
 std::string gActiveCouponCode = "";
@@ -73,7 +77,7 @@ inline std::string formatCurrency(double amount) {
     return ss.str();
 }
 
-// [MODULE II] Function Overloading: formatCurrency with integer paise (cents)
+// [MODULE II] Function Overloading: formatCurrency with integer paise
 inline std::string formatCurrency(int paise) {
     // [MODULE I] Type conversion: static_cast from int paise to double rupees
     double rupees = static_cast<double>(paise) / 100.0;
@@ -82,41 +86,32 @@ inline std::string formatCurrency(int paise) {
 
 const MenuItem* findMenuItemById(int itemId) {
     for (int i = 0; i < gMenuItemCount; ++i) {
-        if (gMenuItems[i].id == itemId) {
-            return &gMenuItems[i];
-        }
+        if (gMenuItems[i].id == itemId) return &gMenuItems[i];
     }
     return nullptr;
 }
 
 MenuItem* findMenuItemByIdMutable(int itemId) {
     for (int i = 0; i < gMenuItemCount; ++i) {
-        if (gMenuItems[i].id == itemId) {
-            return &gMenuItems[i];
-        }
+        if (gMenuItems[i].id == itemId) return &gMenuItems[i];
     }
     return nullptr;
 }
 
 const Restaurant* findRestaurantById(int restId) {
     for (int i = 0; i < gRestaurantCount; ++i) {
-        if (gRestaurants[i].id == restId) {
-            return &gRestaurants[i];
-        }
+        if (gRestaurants[i].id == restId) return &gRestaurants[i];
     }
     return nullptr;
 }
 
 Order* findOrderById(int orderId) {
     for (int i = 0; i < gOrderCount; ++i) {
-        if (gOrders[i].orderId == orderId) {
-            return &gOrders[i];
-        }
+        if (gOrders[i].orderId == orderId) return &gOrders[i];
     }
     return nullptr;
 }
 
-// Calculate live position of an order in the kitchen circular queue
 int getOrderQueuePosition(int orderId) {
     for (int i = 0; i < gKitchenQueue.size(); ++i) {
         int qId = 0;
@@ -124,7 +119,7 @@ int getOrderQueuePosition(int orderId) {
             return i + 1; // 1-indexed queue position
         }
     }
-    return 0; // Not currently waiting in queue (cooking, out for delivery, or delivered)
+    return 0;
 }
 
 // [MODULE I] Bill Calculation using operators and type conversion
@@ -143,43 +138,32 @@ void calculateCartTotals(
     for (int i = 0; i < gCartCount; ++i) {
         outSubtotal += gCartItems[i].getLineTotal();
         const Restaurant* r = findRestaurantById(gCartItems[i].restaurantId);
-        if (r) {
-            restaurantZoneId = r->zoneId;
-        }
+        if (r) restaurantZoneId = r->zoneId;
     }
 
     if (gCartCount == 0) {
-        outTax = 0.0;
-        outDeliveryFee = 0.0;
-        outDiscount = 0.0;
-        outTotal = 0.0;
+        outTax = 0.0; outDeliveryFee = 0.0; outDiscount = 0.0; outTotal = 0.0;
         return;
     }
 
-    // [MODULE I] Arithmetic operators for tax & delivery calculation
     outTax = outSubtotal * TAX_RATE;
-
     int estimatedMins = 0;
     SalesMatrixManager::calculateDelivery(restaurantZoneId, deliveryZoneId, isExpress, outDeliveryFee, estimatedMins);
 
-    // Apply coupon discount
     outDiscount = 0.0;
     if (gActiveDiscountPercent > 0.0) {
         outDiscount += (outSubtotal * (gActiveDiscountPercent / 100.0));
     }
     outDiscount += gActiveDiscountFlat;
     if (gActiveCouponCode.find("FREEDEL") != std::string::npos) {
-        outDeliveryFee = 0.0; // Free delivery coupon
+        outDeliveryFee = 0.0;
     }
-    if (outDiscount > outSubtotal) {
-        outDiscount = outSubtotal;
-    }
+    if (outDiscount > outSubtotal) outDiscount = outSubtotal;
 
     outTotal = (outSubtotal - outDiscount) + outTax + outDeliveryFee;
     if (outTotal < 0.0) outTotal = 0.0;
 }
 
-// Serialize current cart to JSON string
 std::string cartToJSON(int deliveryZone = 0, bool isExpress = false) {
     double subtotal = 0.0, tax = 0.0, delFee = 0.0, discount = 0.0, total = 0.0;
     calculateCartTotals(subtotal, tax, delFee, discount, total, deliveryZone, isExpress);
@@ -206,7 +190,6 @@ std::string cartToJSON(int deliveryZone = 0, bool isExpress = false) {
     return ss.str();
 }
 
-// Build standard JSON response supporting both "modules" and "handled_by"
 std::string makeResponse(bool success, const std::string& message, const std::string& dataJSON, const std::vector<std::string>& modules) {
     std::ostringstream ss;
     ss << "{"
@@ -230,14 +213,18 @@ std::string makeResponse(bool success, const std::string& message, const std::st
 }
 
 // ============================================================================
-// [MODULE VIII] CART ACTIONS & UNDO ENGINE
+// [MODULE VIII] CART ACTIONS & [FEATURE 2] INVENTORY LOCK ENGINE
 // ============================================================================
 
 bool addToCartInternal(int itemId, int quantity, bool recordUndo = true) {
     if (quantity <= 0) return false;
     MenuItem* item = findMenuItemByIdMutable(itemId);
-    if (!item || item->stock < quantity) {
-        return false;
+    if (!item) return false;
+
+    // [FEATURE 2: REAL-TIME INVENTORY LOCK]
+    // Check available unreserved stock
+    if ((item->stock - item->reservedStock) < quantity) {
+        return false; // Out of stock or inventory already locked by active carts
     }
 
     int existingIdx = -1;
@@ -261,7 +248,9 @@ bool addToCartInternal(int itemId, int quantity, bool recordUndo = true) {
         gCartCount++;
     }
 
-    // [MODULE VIII] Stack push | used by: UNDO
+    // Atomically lock inventory for the session
+    item->reservedStock += quantity;
+
     if (recordUndo) {
         CartAction action;
         action.type = (existingIdx == -1 ? ACTION_ADD_ITEM : ACTION_UPDATE_QTY);
@@ -271,7 +260,6 @@ bool addToCartInternal(int itemId, int quantity, bool recordUndo = true) {
         action.itemPrice = item->price;
         action.itemName = item->name;
         gUndoStack.push(action);
-
         gSTLManager.pushUndo(action);
     }
 
@@ -289,8 +277,13 @@ bool removeFromCartInternal(int itemId, bool recordUndo = true) {
     if (foundIdx == -1) return false;
 
     CartItem itemBeingRemoved = gCartItems[foundIdx];
+    MenuItem* item = findMenuItemByIdMutable(itemId);
+    if (item) {
+        // [FEATURE 2: REAL-TIME INVENTORY RELEASE]
+        item->reservedStock -= itemBeingRemoved.quantity;
+        if (item->reservedStock < 0) item->reservedStock = 0;
+    }
 
-    // [MODULE VIII] Stack push | used by: UNDO
     if (recordUndo) {
         CartAction action;
         action.type = ACTION_REMOVE_ITEM;
@@ -300,11 +293,9 @@ bool removeFromCartInternal(int itemId, bool recordUndo = true) {
         action.itemPrice = itemBeingRemoved.price;
         action.itemName = itemBeingRemoved.name;
         gUndoStack.push(action);
-
         gSTLManager.pushUndo(action);
     }
 
-    // Shift 1D array to remove item
     for (int i = foundIdx; i < gCartCount - 1; ++i) {
         gCartItems[i] = gCartItems[i + 1];
     }
@@ -312,7 +303,6 @@ bool removeFromCartInternal(int itemId, bool recordUndo = true) {
     return true;
 }
 
-// [MODULE VIII] Stack pop & Reverse Action | used by: UNDO
 bool performCartUndo(std::string& outActionDesc) {
     CartAction action;
     if (!gUndoStack.pop(action)) {
@@ -332,7 +322,13 @@ bool performCartUndo(std::string& outActionDesc) {
         } else {
             for (int i = 0; i < gCartCount; ++i) {
                 if (gCartItems[i].itemId == action.itemId) {
+                    int diff = gCartItems[i].quantity - action.previousQuantity;
                     gCartItems[i].quantity = action.previousQuantity;
+                    MenuItem* m = findMenuItemByIdMutable(action.itemId);
+                    if (m) {
+                        m->reservedStock -= diff;
+                        if (m->reservedStock < 0) m->reservedStock = 0;
+                    }
                     break;
                 }
             }
@@ -341,7 +337,13 @@ bool performCartUndo(std::string& outActionDesc) {
     } else if (action.type == ACTION_UPDATE_QTY) {
         for (int i = 0; i < gCartCount; ++i) {
             if (gCartItems[i].itemId == action.itemId) {
+                int diff = gCartItems[i].quantity - action.previousQuantity;
                 gCartItems[i].quantity = action.previousQuantity;
+                MenuItem* m = findMenuItemByIdMutable(action.itemId);
+                if (m) {
+                    m->reservedStock -= diff;
+                    if (m->reservedStock < 0) m->reservedStock = 0;
+                }
                 break;
             }
         }
@@ -356,27 +358,53 @@ bool performCartUndo(std::string& outActionDesc) {
 }
 
 // ============================================================================
+// [FEATURE 1: SMART FLEET DISPATCH & ZONE ROUTING ENGINE]
+// ============================================================================
+
+int dispatchNearestRider(int orderId) {
+    Order* order = findOrderById(orderId);
+    if (!order) return -1;
+    const Restaurant* rest = findRestaurantById(order->restaurantId);
+    if (!rest) return -1;
+
+    double nearestDist = 999.0;
+    int riderIdx = findNearestAvailableRider(rest->zoneId, gRiders, gRiderCount, ZONE_DISTANCE_MATRIX, nearestDist);
+    if (riderIdx == -1) return -1; // No riders available
+
+    Rider& rider = gRiders[riderIdx];
+    rider.isAvailable = false;
+    rider.activeOrderId = orderId;
+    order->assignedRiderId = rider.id;
+    order->riderName = rider.name + " (" + rider.vehicle + ")";
+    order->dispatchDistance = nearestDist;
+    order->status = "OUT_FOR_DELIVERY";
+
+    // Dynamic ETA: kitchen prep + (distance / speed multiplier * 3.5 min/km)
+    double speedMult = (rider.speedMultiplier > 0.1 ? rider.speedMultiplier : 1.0);
+    order->estimatedMinutes = (order->isExpress ? 8 : 15) + static_cast<int>(std::round(nearestDist * 3.5 / speedMult));
+    return rider.id;
+}
+
+// ============================================================================
 // [MODULE II] COMMAND DISPATCHER & PROTOCOL HANDLER
 // ============================================================================
 
-std::string handleCommand(const std::string& rawLine) {
-    std::vector<std::string> tokens = tokenizeString(rawLine, ' ');
+std::string handleCommand(const std::string& line) {
+    auto tokens = tokenizeString(line, ' ');
     if (tokens.empty()) {
-        return makeResponse(false, "Empty command", "{}", {"Module II (Control Statements)"});
+        return makeResponse(false, "Empty command", "{}", {"Module II (Control)"});
     }
 
     std::string cmd = tokens[0];
 
-    // ------------------------------------------------------------------------
     // PING
-    // ------------------------------------------------------------------------
     if (cmd == "PING") {
-        return makeResponse(true, "FoodRush Engine is active", "{\"status\":\"OK\"}", {"Module I (Basics)", "Module II (Control)"});
+        return makeResponse(true, "FoodRush Engine is alive and ready", "{\"status\":\"OK\"}", {
+            "Module I (Basics)", "Module II (Control)"
+        });
     }
 
-    // ------------------------------------------------------------------------
     // GET_RESTAURANTS
-    // ------------------------------------------------------------------------
     if (cmd == "GET_RESTAURANTS") {
         std::ostringstream ss;
         ss << "[";
@@ -385,38 +413,38 @@ std::string handleCommand(const std::string& rawLine) {
             if (i < gRestaurantCount - 1) ss << ",";
         }
         ss << "]";
-        return makeResponse(true, "Fetched all restaurants", ss.str(), {
+        return makeResponse(true, "Fetched all partner restaurants", ss.str(), {
             "Module VI (Structures - Restaurant)",
             "Module III (1D Arrays - restaurants[])"
         });
     }
 
-    // ------------------------------------------------------------------------
     // GET_MENU [restaurantId]
-    // ------------------------------------------------------------------------
     if (cmd == "GET_MENU") {
-        int filterRestId = (tokens.size() > 1) ? std::stoi(tokens[1]) : 0;
+        int targetRestId = 0;
+        if (tokens.size() > 1) {
+            targetRestId = std::stoi(tokens[1]);
+        }
+
         std::ostringstream ss;
         ss << "[";
         bool first = true;
         for (int i = 0; i < gMenuItemCount; ++i) {
-            if (filterRestId == 0 || gMenuItems[i].restaurantId == filterRestId) {
+            if (targetRestId == 0 || gMenuItems[i].restaurantId == targetRestId) {
                 if (!first) ss << ",";
                 ss << gMenuItems[i].toJSON();
                 first = false;
             }
         }
         ss << "]";
-        return makeResponse(true, "Fetched menu items", ss.str(), {
+        return makeResponse(true, "Fetched catalog items", ss.str(), {
             "Module VI (Structures - MenuItem)",
             "Module III (1D Arrays - menuItems[])",
             "Module I (Basics - Bitwise dietary flags)"
         });
     }
 
-    // ------------------------------------------------------------------------
     // [MODULE V] SEARCH_DISH <query>
-    // ------------------------------------------------------------------------
     if (cmd == "SEARCH_DISH") {
         std::string query = "";
         for (size_t i = 1; i < tokens.size(); ++i) {
@@ -436,13 +464,12 @@ std::string handleCommand(const std::string& rawLine) {
                 ss << gMenuItems[i].toJSON();
                 first = false;
                 matchCount++;
-
                 gRecentlyViewedStack.push(gMenuItems[i].id);
             }
         }
         ss << "]";
 
-        // [MODULE V] Did You Mean fuzzy suggestion using Levenshtein distance
+        // [MODULE V] Levenshtein fuzzy suggestion
         std::string didYouMean = "";
         if (matchCount == 0 && !query.empty()) {
             didYouMean = findDidYouMeanSuggestion(query, gMenuItems, gMenuItemCount);
@@ -459,9 +486,67 @@ std::string handleCommand(const std::string& rawLine) {
         });
     }
 
-    // ------------------------------------------------------------------------
-    // [MODULE VIII] CART_ADD <itemId> <quantity>
-    // ------------------------------------------------------------------------
+    // [FEATURE 3] GET_TOP_DISHES [k]
+    if (cmd == "GET_TOP_DISHES") {
+        int k = 5;
+        if (tokens.size() > 1) {
+            k = std::stoi(tokens[1]);
+        }
+        std::vector<MenuItem> topList = getTopKDishes(gMenuItems, gMenuItemCount, k);
+        std::ostringstream ss;
+        ss << "{\"topK\":" << topList.size() << ",\"dishes\":[";
+        for (size_t i = 0; i < topList.size(); ++i) {
+            ss << topList[i].toJSON();
+            if (i < topList.size() - 1) ss << ",";
+        }
+        ss << "]}";
+        return makeResponse(true, "Top-rated dishes leaderboard", ss.str(), {
+            "Module VII (Performance - O(N log K) Sorting / Ranking)",
+            "Feature 3 (Customer Rating System & Top-K Ranking)"
+        });
+    }
+
+    // [FEATURE 3] RATE_DISH <dishId> <rating>
+    if (cmd == "RATE_DISH") {
+        if (tokens.size() < 3) {
+            return makeResponse(false, "Usage: RATE_DISH <dishId> <rating_1_to_5>", "{}", {"Module II (Control)"});
+        }
+        int dishId = std::stoi(tokens[1]);
+        double score = std::stod(tokens[2]);
+        if (score < 1.0 || score > 5.0) {
+            return makeResponse(false, "Rating must be between 1.0 and 5.0", "{}", {"Module II (Control)"});
+        }
+        MenuItem* item = findMenuItemByIdMutable(dishId);
+        if (!item) return makeResponse(false, "Dish not found", "{}", {"Module II (Control)"});
+
+        // Moving average recalculation
+        item->rating = ((item->rating * item->ratingCount) + score) / (item->ratingCount + 1);
+        item->ratingCount++;
+
+        return makeResponse(true, "Rating submitted for '" + item->name + "'", item->toJSON(), {
+            "Module I (Basics - Floating Point Calculation)",
+            "Feature 3 (Customer Rating System & Top-K Ranking)"
+        });
+    }
+
+    // [FEATURE 2] RESTOCK_ITEM <itemId> <quantity>
+    if (cmd == "RESTOCK_ITEM") {
+        if (tokens.size() < 3) {
+            return makeResponse(false, "Usage: RESTOCK_ITEM <itemId> <quantity>", "{}", {"Module II (Control)"});
+        }
+        int itemId = std::stoi(tokens[1]);
+        int qty = std::stoi(tokens[2]);
+        if (qty <= 0) return makeResponse(false, "Quantity must be positive", "{}", {"Module II (Control)"});
+        MenuItem* item = findMenuItemByIdMutable(itemId);
+        if (!item) return makeResponse(false, "Dish not found", "{}", {"Module II (Control)"});
+        item->stock += qty;
+        return makeResponse(true, "Restocked '" + item->name + "' by " + std::to_string(qty) + " units", item->toJSON(), {
+            "Module III (1D Arrays - stock update)",
+            "Feature 2 (Real-Time Stock Lock & Inventory Reservation)"
+        });
+    }
+
+    // CART_ADD <itemId> <quantity>
     if (cmd == "CART_ADD") {
         if (tokens.size() < 3) {
             return makeResponse(false, "Usage: CART_ADD <itemId> <quantity>", "{}", {"Module II (Control)"});
@@ -471,19 +556,19 @@ std::string handleCommand(const std::string& rawLine) {
 
         bool ok = addToCartInternal(itemId, quantity, true);
         if (!ok) {
-            return makeResponse(false, "Could not add item: out of stock or cart limit reached.", "{}", {"Module VIII (Stack)", "Module I (Basics)"});
+            return makeResponse(false, "Could not add item: out of stock or inventory locked.", "{}", {
+                "Module VIII (Stack)", "Feature 2 (Real-Time Inventory Lock)"
+            });
         }
 
         return makeResponse(true, "Item added to your order", cartToJSON(), {
             "Module VIII (Stack - push action for undo)",
             "Module VI (Structures - CartItem)",
-            "Module I (Basics - price calculation)"
+            "Feature 2 (Real-Time Inventory Lock)"
         });
     }
 
-    // ------------------------------------------------------------------------
-    // [MODULE VIII] CART_REMOVE <itemId>
-    // ------------------------------------------------------------------------
+    // CART_REMOVE <itemId>
     if (cmd == "CART_REMOVE") {
         if (tokens.size() < 2) {
             return makeResponse(false, "Usage: CART_REMOVE <itemId>", "{}", {"Module II (Control)"});
@@ -491,63 +576,68 @@ std::string handleCommand(const std::string& rawLine) {
         int itemId = std::stoi(tokens[1]);
         bool ok = removeFromCartInternal(itemId, true);
         if (!ok) {
-            return makeResponse(false, "Item not found in order", "{}", {"Module II (Control)"});
+            return makeResponse(false, "Item not found in your order", "{}", {"Module VIII (Stack)"});
         }
+
         return makeResponse(true, "Item removed from order", cartToJSON(), {
-            "Module VIII (Stack - push removal action for undo)",
-            "Module III (1D Arrays - array shifting)"
+            "Module VIII (Stack - push remove action)",
+            "Module VI (Structures - CartItem)",
+            "Feature 2 (Real-Time Inventory Release)"
         });
     }
 
-    // ------------------------------------------------------------------------
-    // [MODULE VIII] CART_UNDO
-    // ------------------------------------------------------------------------
+    // CART_UNDO
     if (cmd == "CART_UNDO") {
-        std::string actionDesc;
-        bool ok = performCartUndo(actionDesc);
+        std::string desc = "";
+        bool ok = performCartUndo(desc);
         if (!ok) {
-            return makeResponse(false, actionDesc, cartToJSON(), {
-                "Module VIII (Stack - pop underflow guard)"
-            });
+            return makeResponse(false, desc, cartToJSON(), {"Module VIII (Stack - empty check)"});
         }
-        return makeResponse(true, actionDesc, cartToJSON(), {
+
+        return makeResponse(true, "Undid last action: " + desc, cartToJSON(), {
             "Module VIII (Stack - pop & reverse action)",
             "Module VI (Structures - CartAction)",
-            "Module X (STL - std::stack synchronizer)"
+            "Feature 2 (Real-Time Inventory Lock Sync)"
         });
     }
 
-    // ------------------------------------------------------------------------
-    // CART_VIEW [zoneId] [isExpress]
-    // ------------------------------------------------------------------------
+    // CART_VIEW [deliveryZoneId] [isExpress]
     if (cmd == "CART_VIEW") {
-        int zone = (tokens.size() > 1) ? std::stoi(tokens[1]) : 0;
-        bool express = (tokens.size() > 2) ? (tokens[2] == "1" || tokens[2] == "true") : false;
-        return makeResponse(true, "Current order summary", cartToJSON(zone, express), {
+        int zone = 0;
+        bool express = false;
+        if (tokens.size() > 1) zone = std::stoi(tokens[1]);
+        if (tokens.size() > 2) express = (tokens[2] == "1" || tokens[2] == "true");
+
+        return makeResponse(true, "Current order breakdown", cartToJSON(zone, express), {
             "Module I (Basics - tax, subtotal, delivery calculation)",
             "Module IV (2D Arrays - zone distance lookup)",
             "Module VI (Structures - CartItem)"
         });
     }
 
-    // ------------------------------------------------------------------------
     // CART_CLEAR
-    // ------------------------------------------------------------------------
     if (cmd == "CART_CLEAR") {
+        // Release all reserved stock
+        for (int i = 0; i < gCartCount; ++i) {
+            MenuItem* m = findMenuItemByIdMutable(gCartItems[i].itemId);
+            if (m) {
+                m->reservedStock -= gCartItems[i].quantity;
+                if (m->reservedStock < 0) m->reservedStock = 0;
+            }
+        }
         gCartCount = 0;
         gUndoStack.clear();
         gActiveCouponCode = "";
         gActiveDiscountPercent = 0.0;
         gActiveDiscountFlat = 0.0;
-        return makeResponse(true, "Cart cleared", cartToJSON(), {
+
+        return makeResponse(true, "Order cleared", cartToJSON(), {
             "Module VIII (Stack - clear)",
-            "Module III (1D Arrays - reset count)"
+            "Feature 2 (Real-Time Inventory Release)"
         });
     }
 
-    // ------------------------------------------------------------------------
-    // [MODULE V] & [MODULE X] APPLY_COUPON <code>
-    // ------------------------------------------------------------------------
+    // APPLY_COUPON <code>
     if (cmd == "APPLY_COUPON") {
         if (tokens.size() < 2) {
             return makeResponse(false, "Please provide a coupon code", "{}", {"Module II (Control)"});
@@ -589,9 +679,7 @@ std::string handleCommand(const std::string& rawLine) {
         });
     }
 
-    // ------------------------------------------------------------------------
-    // [MODULE VI], [MODULE IX], [MODULE IV], [MODULE V] CHECKOUT
-    // ------------------------------------------------------------------------
+    // CHECKOUT <name> <zoneId> <street> [isExpress]
     if (cmd == "CHECKOUT") {
         if (tokens.size() < 4) {
             return makeResponse(false, "Usage: CHECKOUT <name> <zoneId> <street> [isExpress]", "{}", {"Module II (Control)"});
@@ -635,8 +723,11 @@ std::string handleCommand(const std::string& rawLine) {
         for (int i = 0; i < gCartCount; ++i) {
             newOrder.items[i] = gCartItems[i];
             MenuItem* m = findMenuItemByIdMutable(gCartItems[i].itemId);
-            if (m && m->stock >= gCartItems[i].quantity) {
+            if (m) {
                 m->stock -= gCartItems[i].quantity;
+                m->reservedStock -= gCartItems[i].quantity;
+                if (m->reservedStock < 0) m->reservedStock = 0;
+                if (m->stock < 0) m->stock = 0;
             }
         }
         newOrder.subtotal = subtotal;
@@ -649,6 +740,7 @@ std::string handleCommand(const std::string& rawLine) {
         newOrder.assignedRiderId = -1;
         newOrder.riderName = "Assigning delivery partner";
         newOrder.estimatedMinutes = estimatedMins;
+        newOrder.dispatchDistance = 0.0;
 
         // [MODULE IX] Circular Queue Enqueue for Kitchen Orders
         gKitchenQueue.enqueue(newOrder.orderId);
@@ -680,13 +772,11 @@ std::string handleCommand(const std::string& rawLine) {
             "Module V (Strings - Tracking code check-digit via string reversal)",
             "Module IV (2D Arrays - Sales Matrix update & Distance fee)",
             "Module I (Basics - Bill & tax calculation)",
-            "Module III (1D Arrays - Stock deduction)"
+            "Feature 2 (Real-Time Stock Lock & Stock Deduction)"
         });
     }
 
-    // ------------------------------------------------------------------------
     // TRACK_ORDER <orderIdOrCode>
-    // ------------------------------------------------------------------------
     if (cmd == "TRACK_ORDER") {
         if (tokens.size() < 2) {
             return makeResponse(false, "Usage: TRACK_ORDER <orderIdOrCode>", "{}", {"Module II (Control)"});
@@ -694,12 +784,10 @@ std::string handleCommand(const std::string& rawLine) {
         std::string query = tokens[1];
         Order* target = nullptr;
 
-        // Try lookup by numeric order ID
         try {
             int id = std::stoi(query);
             target = findOrderById(id);
         } catch (...) {
-            // Lookup by tracking code
             for (int i = 0; i < gOrderCount; ++i) {
                 if (gOrders[i].trackingCode == query) {
                     target = &gOrders[i];
@@ -709,17 +797,11 @@ std::string handleCommand(const std::string& rawLine) {
         }
 
         if (!target) {
-            // Return most recent order if available
-            if (gOrderCount > 0) {
-                target = &gOrders[gOrderCount - 1];
-            } else {
-                return makeResponse(false, "Order not found", "{}", {"Module II (Control)"});
-            }
+            if (gOrderCount > 0) target = &gOrders[gOrderCount - 1];
+            else return makeResponse(false, "Order not found", "{}", {"Module II (Control)"});
         }
 
         target->queuePosition = getOrderQueuePosition(target->orderId);
-
-        // [MODULE V] Verify tracking code check digit
         bool isTrackingValid = validateTrackingCode(target->trackingCode);
 
         std::ostringstream ss;
@@ -735,16 +817,14 @@ std::string handleCommand(const std::string& rawLine) {
         });
     }
 
-    // ------------------------------------------------------------------------
-    // SIMULATE_NEXT_STAGE [orderId] (Step order to next stage for customer tracking)
-    // ------------------------------------------------------------------------
+    // SIMULATE_NEXT_STAGE [orderId]
     if (cmd == "SIMULATE_NEXT_STAGE") {
         Order* target = nullptr;
         if (tokens.size() > 1) {
             int ordId = std::stoi(tokens[1]);
             target = findOrderById(ordId);
         } else if (gOrderCount > 0) {
-            target = &gOrders[gOrderCount - 1]; // Latest order
+            target = &gOrders[gOrderCount - 1];
         }
 
         if (!target) {
@@ -755,45 +835,24 @@ std::string handleCommand(const std::string& rawLine) {
         std::string newStatus = prevStatus;
 
         if (prevStatus == "PLACED") {
-            // Move to PREPARING (kitchen begins)
             target->status = "PREPARING";
             target->riderName = "Chef is preparing your meal";
             newStatus = "PREPARING";
         } else if (prevStatus == "PREPARING") {
-            // Kitchen finishes: dequeue from kitchen queue and assign rider
+            // Kitchen finishes: dequeue and dispatch nearest rider
             int dummyId = 0;
             bool wasExpress = false;
             gPriorityOrderQueue.dequeue(dummyId, wasExpress);
             gKitchenQueue.dequeue(dummyId);
             gSTLManager.dequeueOrder(dummyId);
 
-            // Assign rider
-            int riderId = -1;
-            if (!gAvailableRiderQueue.dequeue(riderId)) {
-                for (int i = 0; i < gRiderCount; ++i) {
-                    if (gRiders[i].isAvailable) {
-                        riderId = gRiders[i].id;
-                        break;
-                    }
-                }
+            // [FEATURE 1: SMART FLEET DISPATCH] Greedily assign nearest available rider
+            int riderId = dispatchNearestRider(target->orderId);
+            if (riderId == -1) {
+                target->riderName = "Awaiting available partner";
             }
-
-            Rider* r = nullptr;
-            for (int i = 0; i < gRiderCount; ++i) {
-                if (gRiders[i].id == riderId) {
-                    r = &gRiders[i];
-                    r->isAvailable = false;
-                    break;
-                }
-            }
-
-            target->status = "OUT_FOR_DELIVERY";
-            target->assignedRiderId = riderId;
-            target->riderName = r ? (r->name + " (" + r->vehicle + ")") : "Delivery Partner";
-            target->estimatedMinutes = target->isExpress ? 10 : 18;
             newStatus = "OUT_FOR_DELIVERY";
         } else if (prevStatus == "OUT_FOR_DELIVERY") {
-            // Deliver order: free up rider and return to circular queue
             target->status = "DELIVERED";
             target->estimatedMinutes = 0;
 
@@ -801,8 +860,9 @@ std::string handleCommand(const std::string& rawLine) {
                 for (int i = 0; i < gRiderCount; ++i) {
                     if (gRiders[i].id == target->assignedRiderId) {
                         gRiders[i].isAvailable = true;
+                        gRiders[i].activeOrderId = -1;
                         gRiders[i].totalDeliveries++;
-                        gAvailableRiderQueue.enqueue(gRiders[i].id); // Return to rotation
+                        gAvailableRiderQueue.enqueue(gRiders[i].id);
                         break;
                     }
                 }
@@ -813,16 +873,19 @@ std::string handleCommand(const std::string& rawLine) {
 
         target->queuePosition = getOrderQueuePosition(target->orderId);
 
-        return makeResponse(true, "Order #" + std::to_string(target->orderId) + " transitioned to: " + newStatus, target->toJSON(), {
+        std::vector<std::string> tags = {
             "Module IX (Queue - Circular Queue dequeue & Rider rotation)",
             "Module VI (Structures - Order state transition)",
-            "Module X (STL - std::deque completed orders)"
-        });
+            "Feature 1 (Smart Fleet Dispatch & Zone Routing)"
+        };
+        if (newStatus == "DELIVERED") {
+            tags.push_back("Module X (STL - std::deque completed orders)");
+        }
+
+        return makeResponse(true, "Order #" + std::to_string(target->orderId) + " transitioned to: " + newStatus, target->toJSON(), tags);
     }
 
-    // ------------------------------------------------------------------------
-    // [MODULE IX] GET_ORDERS
-    // ------------------------------------------------------------------------
+    // GET_ORDERS
     if (cmd == "GET_ORDERS") {
         std::ostringstream ss;
         ss << "{"
@@ -841,9 +904,7 @@ std::string handleCommand(const std::string& rawLine) {
         });
     }
 
-    // ------------------------------------------------------------------------
-    // COOK_ORDER
-    // ------------------------------------------------------------------------
+    // COOK_ORDER [orderId]
     if (cmd == "COOK_ORDER") {
         int orderId = -1;
         if (tokens.size() > 1) {
@@ -873,10 +934,8 @@ std::string handleCommand(const std::string& rawLine) {
         });
     }
 
-    // ------------------------------------------------------------------------
-    // ASSIGN_RIDER
-    // ------------------------------------------------------------------------
-    if (cmd == "ASSIGN_RIDER") {
+    // [FEATURE 1] ASSIGN_RIDER / DISPATCH_ORDER <orderId>
+    if (cmd == "ASSIGN_RIDER" || cmd == "DISPATCH_ORDER") {
         if (tokens.size() < 2) {
             return makeResponse(false, "Usage: ASSIGN_RIDER <orderId>", "{}", {"Module II (Control)"});
         }
@@ -886,44 +945,21 @@ std::string handleCommand(const std::string& rawLine) {
             return makeResponse(false, "Order not found", "{}", {"Module II (Control)"});
         }
 
-        int riderId = -1;
-        if (!gAvailableRiderQueue.dequeue(riderId)) {
-            for (int i = 0; i < gRiderCount; ++i) {
-                if (gRiders[i].isAvailable) {
-                    riderId = gRiders[i].id;
-                    break;
-                }
-            }
-        }
-
+        int riderId = dispatchNearestRider(orderId);
         if (riderId == -1) {
-            return makeResponse(false, "All delivery partners are currently busy", "{}", {"Module IX (Queue)"});
+            return makeResponse(false, "All delivery partners are currently busy", "{}", {
+                "Module IX (Queue)", "Feature 1 (Smart Fleet Dispatch)"
+            });
         }
 
-        Rider* assignedRider = nullptr;
-        for (int i = 0; i < gRiderCount; ++i) {
-            if (gRiders[i].id == riderId) {
-                assignedRider = &gRiders[i];
-                break;
-            }
-        }
-
-        if (assignedRider) {
-            assignedRider->isAvailable = false;
-            targetOrder->assignedRiderId = assignedRider->id;
-            targetOrder->riderName = assignedRider->name + " (" + assignedRider->vehicle + ")";
-            targetOrder->status = "OUT_FOR_DELIVERY";
-        }
-
-        return makeResponse(true, "Delivery partner assigned: " + targetOrder->riderName, targetOrder->toJSON(), {
-            "Module IX (Queue - Circular Rider Queue rotation)",
+        return makeResponse(true, "Delivery partner assigned via nearest-zone dispatch: " + targetOrder->riderName, targetOrder->toJSON(), {
+            "Feature 1 (Smart Fleet Dispatch & Zone Routing)",
+            "Module IV (2D Arrays - 5x5 Zone Distance Matrix)",
             "Module VI (Structures - Rider & Order linkage)"
         });
     }
 
-    // ------------------------------------------------------------------------
-    // COMPLETE_ORDER
-    // ------------------------------------------------------------------------
+    // COMPLETE_ORDER <orderId>
     if (cmd == "COMPLETE_ORDER") {
         if (tokens.size() < 2) {
             return makeResponse(false, "Usage: COMPLETE_ORDER <orderId>", "{}", {"Module II (Control)"});
@@ -941,6 +977,7 @@ std::string handleCommand(const std::string& rawLine) {
             for (int i = 0; i < gRiderCount; ++i) {
                 if (gRiders[i].id == targetOrder->assignedRiderId) {
                     gRiders[i].isAvailable = true;
+                    gRiders[i].activeOrderId = -1;
                     gRiders[i].totalDeliveries++;
                     gAvailableRiderQueue.enqueue(gRiders[i].id);
                     break;
@@ -953,14 +990,12 @@ std::string handleCommand(const std::string& rawLine) {
         return makeResponse(true, "Order #" + std::to_string(orderId) + " delivered successfully", targetOrder->toJSON(), {
             "Module IX (Queue - Return rider to Circular Queue)",
             "Module X (STL - std::deque completed orders)",
-            "Module VI (Structures - Status update)"
+            "Feature 1 (Smart Fleet Dispatch - Rider Free)"
         });
     }
 
-    // ------------------------------------------------------------------------
-    // GET_RIDERS
-    // ------------------------------------------------------------------------
-    if (cmd == "GET_RIDERS") {
+    // [FEATURE 1] GET_FLEET_STATUS / GET_RIDERS
+    if (cmd == "GET_FLEET_STATUS" || cmd == "GET_RIDERS") {
         std::ostringstream ss;
         ss << "[";
         for (int i = 0; i < gRiderCount; ++i) {
@@ -971,13 +1006,11 @@ std::string handleCommand(const std::string& rawLine) {
         return makeResponse(true, "Fetched delivery fleet", ss.str(), {
             "Module VI (Structures - Rider)",
             "Module III (1D Arrays - riders[])",
-            "Module IX (Queue - available rider tracking)"
+            "Feature 1 (Smart Fleet Dispatch & Zone Routing)"
         });
     }
 
-    // ------------------------------------------------------------------------
     // [MODULE IV] GET_SALES_MATRIX
-    // ------------------------------------------------------------------------
     if (cmd == "GET_SALES_MATRIX") {
         return makeResponse(true, "Weekly sales matrix and metrics", gSalesMatrix.toJSON(), {
             "Module IV (2D Arrays - sales[6][7] row/col sums)",
@@ -985,14 +1018,10 @@ std::string handleCommand(const std::string& rawLine) {
         });
     }
 
-    // ------------------------------------------------------------------------
     // [MODULE III] GET_ARRAY_STATS
-    // ------------------------------------------------------------------------
     if (cmd == "GET_ARRAY_STATS") {
         double ratings[MAX_RESTAURANTS];
-        for (int i = 0; i < gRestaurantCount; ++i) {
-            ratings[i] = gRestaurants[i].rating;
-        }
+        for (int i = 0; i < gRestaurantCount; ++i) ratings[i] = gRestaurants[i].rating;
 
         double prices[MAX_TOTAL_ITEMS];
         int stocks[MAX_TOTAL_ITEMS];
@@ -1001,63 +1030,116 @@ std::string handleCommand(const std::string& rawLine) {
             stocks[i] = gMenuItems[i].stock;
         }
 
-        int maxRatingIdx = 0, minRatingIdx = 0;
-        double maxRating = findArrayMax(ratings, gRestaurantCount, maxRatingIdx);
-        double minRating = findArrayMin(ratings, gRestaurantCount, minRatingIdx);
-        double avgRating = calculateArraySum(ratings, gRestaurantCount) / gRestaurantCount;
+        double sumPrices = calculateArraySum(prices, gMenuItemCount);
+        double avgPrice = gMenuItemCount > 0 ? (sumPrices / gMenuItemCount) : 0.0;
 
-        int maxPriceIdx = 0, minPriceIdx = 0;
-        double maxPrice = findArrayMax(prices, gMenuItemCount, maxPriceIdx);
+        int maxRatingIdx = -1;
+        double maxRating = findArrayMax(ratings, gRestaurantCount, maxRatingIdx);
+
+        int minPriceIdx = -1;
         double minPrice = findArrayMin(prices, gMenuItemCount, minPriceIdx);
-        double totalPriceSum = calculateArraySum(prices, gMenuItemCount);
-        double avgPrice = totalPriceSum / gMenuItemCount;
+
+        int maxPriceIdx = -1;
+        double maxPrice = findArrayMax(prices, gMenuItemCount, maxPriceIdx);
 
         double sortedPrices[MAX_TOTAL_ITEMS];
-        for (int i = 0; i < gMenuItemCount; ++i) sortedPrices[i] = prices[i];
+        std::memcpy(sortedPrices, prices, sizeof(double) * gMenuItemCount);
         bubbleSortArray(sortedPrices, gMenuItemCount);
 
         std::ostringstream ss;
         ss << std::fixed << std::setprecision(2);
         ss << "{"
            << "\"ratings\":{"
-           << "\"average\":" << avgRating << ","
-           << "\"max\":" << maxRating << ",\"bestRestaurant\":\"" << gRestaurants[maxRatingIdx].name << "\","
-           << "\"min\":" << minRating << ",\"lowestRestaurant\":\"" << gRestaurants[minRatingIdx].name << "\""
+           << "\"count\":" << gRestaurantCount << ","
+           << "\"maxRating\":" << maxRating << ","
+           << "\"bestRestaurantId\":" << (maxRatingIdx != -1 ? gRestaurants[maxRatingIdx].id : 0)
            << "},"
            << "\"prices\":{"
+           << "\"count\":" << gMenuItemCount << ","
+           << "\"sumTotal\":" << sumPrices << ","
            << "\"average\":" << avgPrice << ","
-           << "\"max\":" << maxPrice << ",\"priciestDish\":\"" << gMenuItems[maxPriceIdx].name << "\","
-           << "\"min\":" << minPrice << ",\"cheapestDish\":\"" << gMenuItems[minPriceIdx].name << "\","
-           << "\"sortedSample\":[" << sortedPrices[0] << "," << sortedPrices[1] << "," << sortedPrices[2] << ",\"... \","
-           << sortedPrices[gMenuItemCount-1] << "]"
+           << "\"minPrice\":" << minPrice << ","
+           << "\"cheapestItemId\":" << (minPriceIdx != -1 ? gMenuItems[minPriceIdx].id : 0) << ","
+           << "\"maxPrice\":" << maxPrice << ","
+           << "\"bubbleSortedSample\":[";
+        int sampleSize = std::min(8, gMenuItemCount);
+        for (int i = 0; i < sampleSize; ++i) {
+            ss << sortedPrices[i];
+            if (i < sampleSize - 1) ss << ",";
+        }
+        ss << "]"
            << "}"
            << "}";
-        return makeResponse(true, "Catalog statistical operations complete", ss.str(), {
+
+        return makeResponse(true, "1D Array statistics and bubble sort analysis", ss.str(), {
             "Module III (1D Arrays - Sum, Min, Max, Traversal)",
             "Module III (1D Arrays - Bubble Sort on prices)",
             "Module I (Basics - floating point division)"
         });
     }
 
-    // ------------------------------------------------------------------------
     // [MODULE VII] BENCHMARK
-    // ------------------------------------------------------------------------
     if (cmd == "BENCHMARK") {
-        std::string benchJSON = PerformanceBenchmark::runFullBenchmark();
-        return makeResponse(true, "Performance benchmark completed", benchJSON, {
+        PerformanceBenchmark bench;
+        return makeResponse(true, "Performance benchmark completed", bench.runFullBenchmark(), {
             "Module VII (Performance - O(N) vs O(log N) Search)",
             "Module VII (Performance - O(N^2) vs O(N log N) Sort)",
             "Module VII (Performance - Time/Space Asymptotic Complexity)"
         });
     }
 
-    // ------------------------------------------------------------------------
-    // [MODULE X] COMPARE_DS
-    // ------------------------------------------------------------------------
+    // [MODULE X] COMPARE_DS [operations]
     if (cmd == "COMPARE_DS") {
-        int iters = (tokens.size() > 1) ? std::stoi(tokens[1]) : 50000;
-        std::string compJSON = gSTLManager.compareDataStructures(iters);
-        return makeResponse(true, "Data structure comparison completed", compJSON, {
+        int operations = 10000;
+        if (tokens.size() > 1) operations = std::stoi(tokens[1]);
+
+        ArrayStack<int, 10000> customStack;
+        std::stack<int> stlStack;
+
+        auto t1 = std::chrono::high_resolution_clock::now();
+        for (int i = 0; i < operations; ++i) customStack.push(i);
+        for (int i = 0; i < operations; ++i) { int val; customStack.pop(val); }
+        auto t2 = std::chrono::high_resolution_clock::now();
+        double customStackUs = std::chrono::duration<double, std::micro>(t2 - t1).count();
+
+        t1 = std::chrono::high_resolution_clock::now();
+        for (int i = 0; i < operations; ++i) stlStack.push(i);
+        for (int i = 0; i < operations; ++i) stlStack.pop();
+        t2 = std::chrono::high_resolution_clock::now();
+        double stlStackUs = std::chrono::duration<double, std::micro>(t2 - t1).count();
+
+        CircularQueue<int, 10000> customQueue;
+        std::queue<int> stlQueue;
+
+        t1 = std::chrono::high_resolution_clock::now();
+        for (int i = 0; i < operations; ++i) customQueue.enqueue(i);
+        for (int i = 0; i < operations; ++i) { int val; customQueue.dequeue(val); }
+        t2 = std::chrono::high_resolution_clock::now();
+        double customQueueUs = std::chrono::duration<double, std::micro>(t2 - t1).count();
+
+        t1 = std::chrono::high_resolution_clock::now();
+        for (int i = 0; i < operations; ++i) stlQueue.push(i);
+        for (int i = 0; i < operations; ++i) stlQueue.pop();
+        t2 = std::chrono::high_resolution_clock::now();
+        double stlQueueUs = std::chrono::duration<double, std::micro>(t2 - t1).count();
+
+        std::ostringstream ss;
+        ss << std::fixed << std::setprecision(2);
+        ss << "{"
+           << "\"operations\":" << operations << ","
+           << "\"stackComparison\":{"
+           << "\"customArrayStackUs\":" << customStackUs << ","
+           << "\"stlStackUs\":" << stlStackUs << ","
+           << "\"winner\":\"" << (customStackUs < stlStackUs ? "ArrayStack (Contiguous Memory)" : "std::stack") << "\""
+           << "},"
+           << "\"queueComparison\":{"
+           << "\"customCircularQueueUs\":" << customQueueUs << ","
+           << "\"stlQueueUs\":" << stlQueueUs << ","
+           << "\"winner\":\"" << (customQueueUs < stlQueueUs ? "CircularQueue (Zero Heap Overhead)" : "std::queue") << "\""
+           << "}"
+           << "}";
+
+        return makeResponse(true, "Data Structure comparison completed", ss.str(), {
             "Module X (STL - std::stack, std::queue, std::deque)",
             "Module VIII (Stack - ArrayStack direct comparison)",
             "Module IX (Queue - CircularQueue direct comparison)",
@@ -1065,76 +1147,62 @@ std::string handleCommand(const std::string& rawLine) {
         });
     }
 
-    // ------------------------------------------------------------------------
-    // [MODULE VIII] & [MODULE IX] INSPECT_ENGINE
-    // ------------------------------------------------------------------------
+    // INSPECT_ENGINE
     if (cmd == "INSPECT_ENGINE") {
         std::ostringstream ss;
         ss << "{"
-           << "\"stackInspector\":{"
-           << "\"capacity\":" << gUndoStack.capacity() << ","
+           << "\"undoStack\":{"
+           << "\"capacity\":" << 50 << ","
            << "\"size\":" << gUndoStack.size() << ","
+           << "\"topIndex\":" << gUndoStack.getTopIndex() << ","
            << "\"isEmpty\":" << (gUndoStack.isEmpty() ? "true" : "false") << ","
-           << "\"elements\":[";
-        for (int i = 0; i < gUndoStack.size(); ++i) {
-            CartAction act;
-            if (gUndoStack.getAtDepth(i, act)) {
-                ss << act.toJSON();
-                if (i < gUndoStack.size() - 1) ss << ",";
+           << "\"isFull\":" << (gUndoStack.isFull() ? "true" : "false") << ","
+           << "\"recentActions\":[";
+        int stackViewCount = std::min(5, gUndoStack.size());
+        for (int i = 0; i < stackViewCount; ++i) {
+            CartAction a;
+            if (gUndoStack.getAtOffset(i, a)) {
+                ss << a.toJSON();
+                if (i < stackViewCount - 1) ss << ",";
             }
         }
         ss << "]"
            << "},"
-           << "\"recentlyViewedStack\":{"
-           << "\"size\":" << gRecentlyViewedStack.size() << ","
-           << "\"items\":[";
-        for (int i = 0; i < gRecentlyViewedStack.size(); ++i) {
-            int dishId = 0;
-            if (gRecentlyViewedStack.getAtDepth(i, dishId)) {
-                const MenuItem* m = findMenuItemById(dishId);
-                ss << "{\"id\":" << dishId << ",\"name\":\"" << (m ? m->name : "Unknown") << "\"}";
-                if (i < gRecentlyViewedStack.size() - 1) ss << ",";
-            }
-        }
-        ss << "]"
-           << "},"
-           << "\"circularQueueInspector\":{"
-           << "\"capacity\":" << gKitchenQueue.capacity() << ","
-           << "\"count\":" << gKitchenQueue.size() << ","
-           << "\"frontIndex\":" << gKitchenQueue.getFrontIndex() << ","
-           << "\"rearIndex\":" << gKitchenQueue.getRearIndex() << ","
-           << "\"elements\":[";
+           << "\"kitchenQueue\":{"
+           << "\"capacity\":" << 50 << ","
+           << "\"size\":" << gKitchenQueue.size() << ","
+           << "\"frontIndex\":" << gKitchenQueue.getFront() << ","
+           << "\"rearIndex\":" << gKitchenQueue.getRear() << ","
+           << "\"isEmpty\":" << (gKitchenQueue.isEmpty() ? "true" : "false") << ","
+           << "\"isFull\":" << (gKitchenQueue.isFull() ? "true" : "false") << ","
+           << "\"waitingOrderIds\":[";
         for (int i = 0; i < gKitchenQueue.size(); ++i) {
-            int ordId = 0;
-            if (gKitchenQueue.getAtOffset(i, ordId)) {
-                ss << ordId;
+            int qId = 0;
+            if (gKitchenQueue.getAtOffset(i, qId)) {
+                ss << qId;
                 if (i < gKitchenQueue.size() - 1) ss << ",";
             }
         }
         ss << "]"
            << "},"
-           << "\"riderQueueInspector\":{"
-           << "\"count\":" << gAvailableRiderQueue.size() << ","
-           << "\"capacity\":" << gAvailableRiderQueue.capacity()
-           << "},"
-           << "\"stlOverview\":{"
-           << "\"couponsInMap\":" << gSTLManager.getCoupons().size() << ","
-           << "\"cuisinesInSet\":" << gSTLManager.getCuisines().size() << ","
-           << "\"dailySpecialPairs\":" << gSTLManager.getDailySpecials().size()
+           << "\"stlContainers\":{"
+           << "\"vectorMenuSize\":" << gSTLManager.getVectorSize() << ","
+           << "\"setUniqueCuisines\":" << gSTLManager.getCuisinesCount() << ","
+           << "\"mapCouponsCount\":" << gSTLManager.getCouponsCount() << ","
+           << "\"dequeCompletedOrders\":" << gSTLManager.getCompletedCount()
            << "}"
            << "}";
-        return makeResponse(true, "Internal state snapshot generated", ss.str(), {
+
+        return makeResponse(true, "Engine internal memory inspected", ss.str(), {
             "Module VIII (Stack - Raw array memory layout inspection)",
             "Module IX (Queue - Circular buffer front/rear pointers)",
             "Module X (STL - Map/Set/Pair inspection)"
         });
     }
 
-    // ------------------------------------------------------------------------
     // HELP
-    // ------------------------------------------------------------------------
     if (cmd == "HELP") {
-        return makeResponse(true, "Available Commands: PING, GET_RESTAURANTS, GET_MENU [id], SEARCH_DISH <query>, CART_ADD <id> <qty>, CART_REMOVE <id>, CART_UNDO, CART_VIEW, CART_CLEAR, APPLY_COUPON <code>, CHECKOUT <name> <zoneId> <street> [express], TRACK_ORDER <idOrCode>, SIMULATE_NEXT_STAGE [id], GET_ORDERS, COOK_ORDER [id], ASSIGN_RIDER <id>, COMPLETE_ORDER <id>, GET_RIDERS, GET_SALES_MATRIX, GET_ARRAY_STATS, BENCHMARK, COMPARE_DS, INSPECT_ENGINE, HELP", "{}", {"Module II (Control)"});
+        return makeResponse(true, "Available Commands: PING, GET_RESTAURANTS, GET_MENU [id], SEARCH_DISH <query>, GET_TOP_DISHES [k], RATE_DISH <id> <score>, RESTOCK_ITEM <id> <qty>, CART_ADD <id> <qty>, CART_REMOVE <id>, CART_UNDO, CART_VIEW, CART_CLEAR, APPLY_COUPON <code>, CHECKOUT <name> <zoneId> <street> [express], TRACK_ORDER <idOrCode>, SIMULATE_NEXT_STAGE [id], GET_ORDERS, COOK_ORDER [id], ASSIGN_RIDER <id>, COMPLETE_ORDER <id>, GET_FLEET_STATUS, GET_SALES_MATRIX, GET_ARRAY_STATS, BENCHMARK, COMPARE_DS, INSPECT_ENGINE, HELP", "{}", {"Module II (Control)"});
     }
 
     return makeResponse(false, "Unknown command: " + cmd + ". Type HELP for list.", "{}", {"Module II (Control)"});
@@ -1145,66 +1213,48 @@ std::string handleCommand(const std::string& rawLine) {
 // ============================================================================
 void runInteractiveCLI() {
     std::cout << "\n======================================================\n";
-    std::cout << "         FOODRUSH - C++ CORE DELIVERY SYSTEM          \n";
-    std::cout << "         Academic & Technical Console Session         \n";
+    std::cout << "         FOODRUSH - C++ CORE BACKEND ENGINE           \n";
+    std::cout << "         5-Person Capstone & Viva Demonstration       \n";
     std::cout << "======================================================\n";
 
     while (true) {
         std::cout << "\n--- MAIN CONSOLE MENU ---\n";
         std::cout << "1. Browse Restaurants & Menu      [Modules III, VI]\n";
         std::cout << "2. Search Dishes with Fuzzy Match [Module V]\n";
-        std::cout << "3. Manage Cart & Test Stack Undo  [Module VIII]\n";
+        std::cout << "3. Manage Cart & Test Stack Undo  [Module VIII, Feature 2]\n";
         std::cout << "4. Track Order & Verify Reversal  [Module V, IX]\n";
-        std::cout << "5. Kitchen Queue & Rider Rotation [Module IX]\n";
-        std::cout << "6. 6x7 Sales Matrix & Distances   [Module IV]\n";
-        std::cout << "7. 1D Array Statistics & Sort     [Module III]\n";
-        std::cout << "8. Run Asymptotic Benchmarks      [Module VII]\n";
-        std::cout << "9. Compare Array DS vs STL        [Module X]\n";
-        std::cout << "10. Live Memory Inspector         [Modules VIII, IX]\n";
-        std::cout << "0. Exit Console\n";
-        std::cout << "Select option (0-10): ";
+        std::cout << "5. Cook Order (Circular Queue)    [Module IX]\n";
+        std::cout << "6. Smart Fleet Dispatch & Routing [Module IV, Feature 1]\n";
+        std::cout << "7. View 6x7 Sales Revenue Matrix  [Module IV]\n";
+        std::cout << "8. Top-Rated Leaderboard & Rate   [Module VII, Feature 3]\n";
+        std::cout << "9. Algorithmic Benchmarks & DS    [Module VII, X]\n";
+        std::cout << "10. Inspect Engine Memory (DS)    [Module VIII, IX, X]\n";
+        std::cout << "0. Exit System\n";
+        std::cout << "Choose option (0-10): ";
 
         int choice = -1;
         if (!(std::cin >> choice)) {
             std::cin.clear();
-            std::string dummy;
-            std::getline(std::cin, dummy);
+            std::string discard;
+            std::getline(std::cin, discard);
             continue;
         }
+        std::string dummy;
+        std::getline(std::cin, dummy);
 
-        std::cin.ignore(1000, '\n');
-
-        if (choice == 0) {
-            std::cout << "Exiting FoodRush Console.\n";
-            break;
-        } else if (choice == 1) {
-            std::cout << "\n--- RESTAURANTS ---\n";
-            for (int i = 0; i < gRestaurantCount; ++i) {
-                std::cout << "[" << gRestaurants[i].id << "] " << gRestaurants[i].name
-                          << " (" << gRestaurants[i].cuisine << ") | Rating: " << gRestaurants[i].rating
-                          << "/5.0 | Min: " << formatCurrency(gRestaurants[i].minOrder) << "\n";
-            }
-            std::cout << "\nEnter restaurant ID to view menu (0 for all): ";
-            int rId = 0;
-            std::cin >> rId;
-            std::cout << "\n--- DISHES ---\n";
-            for (int i = 0; i < gMenuItemCount; ++i) {
-                if (rId == 0 || gMenuItems[i].restaurantId == rId) {
-                    std::cout << "ID: " << gMenuItems[i].id << " | " << gMenuItems[i].name
-                              << " | Price: " << formatCurrency(gMenuItems[i].price)
-                              << " | Stock: " << gMenuItems[i].stock
-                              << (gMenuItems[i].isVeg ? " [VEG]" : " [NON-VEG]") << "\n";
-                }
-            }
+        if (choice == 0) break;
+        if (choice == 1) {
+            std::cout << handleCommand("GET_RESTAURANTS") << "\n";
+            std::cout << "Enter Restaurant ID for menu (or 0 for all): ";
+            int id = 0; std::cin >> id;
+            std::cout << handleCommand("GET_MENU " + std::to_string(id)) << "\n";
         } else if (choice == 2) {
             std::cout << "Enter search query: ";
-            std::string q;
-            std::getline(std::cin, q);
+            std::string q; std::getline(std::cin, q);
             std::cout << handleCommand("SEARCH_DISH " + q) << "\n";
         } else if (choice == 3) {
-            std::cout << "\n1. Add item\n2. Remove item\n3. UNDO last action (Stack Pop)\n4. View cart\nChoose: ";
-            int sub = 0;
-            std::cin >> sub;
+            std::cout << "\n1. Add item\n2. Remove item\n3. UNDO last action (Stack Pop)\n4. View cart\n5. Clear cart\nChoose: ";
+            int sub = 0; std::cin >> sub;
             if (sub == 1) {
                 int id, qty;
                 std::cout << "Item ID: "; std::cin >> id;
@@ -1216,36 +1266,45 @@ void runInteractiveCLI() {
                 std::cout << handleCommand("CART_REMOVE " + std::to_string(id)) << "\n";
             } else if (sub == 3) {
                 std::cout << handleCommand("CART_UNDO") << "\n";
-            } else {
+            } else if (sub == 4) {
                 std::cout << handleCommand("CART_VIEW") << "\n";
+            } else {
+                std::cout << handleCommand("CART_CLEAR") << "\n";
             }
         } else if (choice == 4) {
             std::cout << "Enter Order ID or Tracking Code: ";
-            std::string code;
-            std::getline(std::cin, code);
+            std::string code; std::getline(std::cin, code);
             std::cout << handleCommand("TRACK_ORDER " + code) << "\n";
         } else if (choice == 5) {
-            std::cout << handleCommand("GET_ORDERS") << "\n";
-            std::cout << "\n1. Cook Next Order (Queue Dequeue)\n2. Assign Rider\n3. Advance Latest Order\nChoose: ";
-            int qsub = 0;
-            std::cin >> qsub;
-            if (qsub == 1) {
-                std::cout << handleCommand("COOK_ORDER") << "\n";
-            } else if (qsub == 2) {
-                int ordId;
-                std::cout << "Order ID: "; std::cin >> ordId;
-                std::cout << handleCommand("ASSIGN_RIDER " + std::to_string(ordId)) << "\n";
-            } else if (qsub == 3) {
-                std::cout << handleCommand("SIMULATE_NEXT_STAGE") << "\n";
-            }
+            std::cout << handleCommand("COOK_ORDER") << "\n";
         } else if (choice == 6) {
-            std::cout << handleCommand("GET_SALES_MATRIX") << "\n";
+            std::cout << "\n1. View Fleet Status\n2. Dispatch Nearest Rider to Order\nChoose: ";
+            int sub = 0; std::cin >> sub;
+            if (sub == 1) {
+                std::cout << handleCommand("GET_FLEET_STATUS") << "\n";
+            } else {
+                std::cout << "Enter Order ID: ";
+                int ordId; std::cin >> ordId;
+                std::cout << handleCommand("ASSIGN_RIDER " + std::to_string(ordId)) << "\n";
+            }
         } else if (choice == 7) {
-            std::cout << handleCommand("GET_ARRAY_STATS") << "\n";
+            std::cout << handleCommand("GET_SALES_MATRIX") << "\n";
         } else if (choice == 8) {
-            std::cout << handleCommand("BENCHMARK") << "\n";
+            std::cout << "\n1. View Top-K Rated Dishes\n2. Rate a Dish\nChoose: ";
+            int sub = 0; std::cin >> sub;
+            if (sub == 1) {
+                std::cout << "How many top dishes (K)? ";
+                int k; std::cin >> k;
+                std::cout << handleCommand("GET_TOP_DISHES " + std::to_string(k)) << "\n";
+            } else {
+                int dId; double rating;
+                std::cout << "Dish ID: "; std::cin >> dId;
+                std::cout << "Rating (1.0 - 5.0): "; std::cin >> rating;
+                std::cout << handleCommand("RATE_DISH " + std::to_string(dId) + " " + std::to_string(rating)) << "\n";
+            }
         } else if (choice == 9) {
-            std::cout << handleCommand("COMPARE_DS 50000") << "\n";
+            std::cout << handleCommand("BENCHMARK") << "\n";
+            std::cout << handleCommand("COMPARE_DS 10000") << "\n";
         } else if (choice == 10) {
             std::cout << handleCommand("INSPECT_ENGINE") << "\n";
         }
@@ -1256,33 +1315,37 @@ void runInteractiveCLI() {
 // MAIN ENTRY POINT
 // ============================================================================
 int main(int argc, char* argv[]) {
+    // [MODULE I] Console I/O optimization
     std::ios_base::sync_with_stdio(false);
     std::cin.tie(NULL);
 
+    // Initialize all seed data into fixed memory arrays
     initializeSeedData(gRestaurants, gRestaurantCount, gMenuItems, gMenuItemCount, gRiders, gRiderCount);
 
+    // Pre-populate STL structures for Module X
+    for (int i = 0; i < gMenuItemCount; ++i) {
+        gSTLManager.addMenuItem(gMenuItems[i]);
+    }
+    for (int i = 0; i < gRestaurantCount; ++i) {
+        gSTLManager.addCuisine(gRestaurants[i].cuisine);
+    }
     for (int i = 0; i < gRiderCount; ++i) {
         gAvailableRiderQueue.enqueue(gRiders[i].id);
     }
 
-    for (int i = 0; i < gMenuItemCount; ++i) {
-        gSTLManager.addMenuItem(gMenuItems[i]);
+    // CLI mode check
+    for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--cli") == 0 || std::strcmp(argv[i], "-c") == 0) {
+            runInteractiveCLI();
+            return 0;
+        }
     }
 
-    if (argc > 1 && (std::string(argv[1]) == "--cli" || std::string(argv[1]) == "-i" || std::string(argv[1]) == "menu")) {
-        runInteractiveCLI();
-        return 0;
-    }
-
+    // Standard I/O Bridge mode: reads 1 command line -> writes 1 JSON line
     std::string line;
     while (std::getline(std::cin, line)) {
         if (line.empty()) continue;
         if (line == "EXIT" || line == "QUIT") break;
-        if (line == "MENU" || line == "CLI") {
-            runInteractiveCLI();
-            continue;
-        }
-
         std::string response = handleCommand(line);
         std::cout << response << "\n" << std::flush;
     }

@@ -48,6 +48,14 @@ public:
         return rearIndex;
     }
 
+    int getFront() const {
+        return frontIndex;
+    }
+
+    int getRear() const {
+        return rearIndex;
+    }
+
     // [MODULE IX] Circular Queue Enqueue | used by: NEW_ORDER_SUBMISSION
     bool enqueue(const T& item) {
         if (isFull()) {

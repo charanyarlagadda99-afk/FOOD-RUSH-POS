@@ -4,11 +4,21 @@
 **FoodRush** is a full-stack, high-performance food delivery platform designed to showcase real-world systems programming, data structures, and algorithms for second-year Computer Science coursework and university viva voce examinations.
 
 The platform provides a complete end-to-end food ordering workflow:
-- **Customers**: Browse partner restaurants across culinary traditions, search dishes with fuzzy "did you mean" corrections, customize their cart, undo accidental additions with a single click, and checkout with zone-based delivery calculation and express priority.
+- **Customers**: Browse partner restaurants across culinary traditions, search dishes with fuzzy "did you mean" corrections, view Top-Rated dishes, customize their cart, undo accidental additions with a single click, submit verified dish ratings, and checkout with zone-based delivery calculation and express priority.
 - **Order Tracking**: Track orders through a live 4-stage pipeline (Confirmed ➔ In Kitchen ➔ Out for Delivery ➔ Delivered) using tamper-proof tracking codes secured with string-reversal check digits.
-- **Kitchens**: Receive incoming orders into a circular priority queue where express orders jump ahead of standard orders without starving the FIFO queue.
-- **Delivery Fleet**: Manage delivery riders rotating through a circular queue with geographic distance lookups.
-- **Admin Operations**: View platform-wide metrics, a 6×7 restaurant revenue matrix, daily sales volume, and 1D price/rating analytics.
+- **Kitchens**: Receive incoming orders into a circular priority queue where express orders jump ahead of standard orders without starving the FIFO queue, with atomic real-time inventory locking and restocking.
+- **Delivery Fleet**: Manage delivery riders with greedy nearest-neighbor spatial dispatch across a 5×5 distance matrix with vehicle speed multipliers.
+- **Admin Operations**: View platform-wide metrics, a 6×7 restaurant revenue matrix, daily sales volume, delivery fleet availability, inventory restock tools, and 1D price/rating analytics.
+
+---
+
+## 2. Five-Person Capstone Project Architecture
+FoodRush is partitioned cleanly across five specialized engineering modules:
+1. **Catalog & Search Specialist (Member 1)**: Unified 48-item catalog, case-insensitive string search, $O(L_1 \cdot L_2)$ Levenshtein distance Did You Mean suggestion.
+2. **Cart & State Specialist (Member 2)**: Hand-crafted `ArrayStack` LIFO undo/redo mechanism, two-pointer palindrome coupon validator, `std::map` promo discount engine.
+3. **Kitchen Pipeline Specialist (Member 3)**: Ring buffer `CircularQueue` order FIFO, express priority scheduling, 4-stage order lifecycle, tracking code check-digit generator.
+4. **Fleet Dispatch Specialist (Member 4 - Feature 1)**: Inter-zone spatial routing, greedy nearest-rider selection via $5 \times 5$ distance matrix, dynamic vehicle speed multipliers.
+5. **Inventory Lock & Feedback Specialist (Member 5 - Features 2 & 3)**: Two-phase stock reservation (`reservedStock`), atomic restock, customer rating feedback with running average, $O(N \log K)$ Top-K dish leaderboard.
 
 ---
 

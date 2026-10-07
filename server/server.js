@@ -293,6 +293,45 @@ const server = http.createServer(async (req, res) => {
                 return;
             }
 
+            if (pathname === '/api/top-dishes' && req.method === 'GET') {
+                const k = parsedUrl.searchParams.get('k') || '5';
+                const resp = await sendEngineCommand(`GET_TOP_DISHES ${k}`);
+                res.writeHead(200);
+                res.end(JSON.stringify(resp));
+                return;
+            }
+
+            if (pathname === '/api/rate-dish' && req.method === 'POST') {
+                const data = await readJsonBody(req);
+                const resp = await sendEngineCommand(`RATE_DISH ${data.dishId} ${data.stars}`);
+                res.writeHead(200);
+                res.end(JSON.stringify(resp));
+                return;
+            }
+
+            if (pathname === '/api/restock' && req.method === 'POST') {
+                const data = await readJsonBody(req);
+                const resp = await sendEngineCommand(`RESTOCK_ITEM ${data.itemId} ${data.quantity}`);
+                res.writeHead(200);
+                res.end(JSON.stringify(resp));
+                return;
+            }
+
+            if (pathname === '/api/fleet' && req.method === 'GET') {
+                const resp = await sendEngineCommand('GET_FLEET_STATUS');
+                res.writeHead(200);
+                res.end(JSON.stringify(resp));
+                return;
+            }
+
+            if (pathname === '/api/orders/dispatch' && req.method === 'POST') {
+                const data = await readJsonBody(req);
+                const resp = await sendEngineCommand(`DISPATCH_ORDER ${data.orderId}`);
+                res.writeHead(200);
+                res.end(JSON.stringify(resp));
+                return;
+            }
+
             if (pathname === '/api/inspect' && req.method === 'GET') {
                 const resp = await sendEngineCommand('INSPECT_ENGINE');
                 res.writeHead(200);

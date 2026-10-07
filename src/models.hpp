@@ -53,6 +53,9 @@ struct MenuItem {
     bool isVeg;
     int calories;
     unsigned int dietaryFlags; // [MODULE I] Bitwise flags: 1=Spicy, 2=GlutenFree, 4=ChefSpecial
+    double rating;             // [FEATURE 3] Moving average rating (1.0 to 5.0)
+    int ratingCount;           // [FEATURE 3] Total ratings received
+    int reservedStock;         // [FEATURE 2] Real-time stock locked in active carts
 
     std::string toJSON() const {
         std::ostringstream ss;
@@ -64,6 +67,11 @@ struct MenuItem {
            << "\"category\":\"" << category << "\","
            << "\"price\":" << price << ","
            << "\"stock\":" << stock << ","
+           << "\"reservedStock\":" << reservedStock << ","
+           << "\"availableStock\":" << (stock - reservedStock) << ","
+           << "\"rating\":" << std::setprecision(1) << rating << ","
+           << "\"ratingCount\":" << ratingCount << ","
+           << std::setprecision(2)
            << "\"isVeg\":" << (isVeg ? "true" : "false") << ","
            << "\"calories\":" << calories << ","
            << "\"isSpicy\":" << ((dietaryFlags & 1) ? "true" : "false") << ","
@@ -182,6 +190,7 @@ struct Order {
     std::string riderName;
     int estimatedMinutes;
     int queuePosition;                 // Live position in kitchen circular queue
+    double dispatchDistance;           // [FEATURE 1] Nearest rider spatial distance in km
 
     std::string toJSON() const {
         std::ostringstream ss;
@@ -210,7 +219,8 @@ struct Order {
            << "\"assignedRiderId\":" << assignedRiderId << ","
            << "\"riderName\":\"" << riderName << "\","
            << "\"estimatedMinutes\":" << estimatedMinutes << ","
-           << "\"queuePosition\":" << queuePosition
+           << "\"queuePosition\":" << queuePosition << ","
+           << "\"dispatchDistance\":" << dispatchDistance
            << "}";
         return ss.str();
     }
@@ -225,6 +235,8 @@ struct Rider {
     bool isAvailable;
     int totalDeliveries;
     std::string phone;
+    int activeOrderId;         // [FEATURE 1] -1 if idle, otherwise currently assigned order
+    double speedMultiplier;    // [FEATURE 1] Vehicle speed coefficient (e.g. 1.25x for EV)
 
     std::string toJSON() const {
         std::ostringstream ss;
@@ -235,7 +247,9 @@ struct Rider {
            << "\"currentZone\":" << currentZone << ","
            << "\"isAvailable\":" << (isAvailable ? "true" : "false") << ","
            << "\"totalDeliveries\":" << totalDeliveries << ","
-           << "\"phone\":\"" << phone << "\""
+           << "\"phone\":\"" << phone << "\","
+           << "\"activeOrderId\":" << activeOrderId << ","
+           << "\"speedMultiplier\":" << std::fixed << std::setprecision(2) << speedMultiplier
            << "}";
         return ss.str();
     }

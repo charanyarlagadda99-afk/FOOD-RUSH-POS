@@ -107,12 +107,19 @@ const MENU_ITEMS = [
 ];
 
 const RIDERS = [
-    { id: 1, name: "Rahul Sharma", vehicle: "Electric Cargo Bike", currentZone: 0, isAvailable: true, totalDeliveries: 184, phone: "+91 98765 43210" },
-    { id: 2, name: "Priya Nair", vehicle: "Ather Electric Scooter", currentZone: 1, isAvailable: true, totalDeliveries: 241, phone: "+91 98765 43211" },
-    { id: 3, name: "Vikram Malhotra", vehicle: "Hero Splendor EV", currentZone: 2, isAvailable: true, totalDeliveries: 119, phone: "+91 98765 43212" },
-    { id: 4, name: "Amitav Sen", vehicle: "TVS iQube Scooter", currentZone: 3, isAvailable: true, totalDeliveries: 195, phone: "+91 98765 43213" },
-    { id: 5, name: "Kavita Rao", vehicle: "Ola S1 Pro Electric", currentZone: 4, isAvailable: true, totalDeliveries: 162, phone: "+91 98765 43214" }
+    { id: 1, name: "Rahul Sharma", vehicle: "Electric Cargo Bike", currentZone: 0, isAvailable: true, totalDeliveries: 184, phone: "+91 98765 43210", activeOrderId: -1, speedMultiplier: 1.00 },
+    { id: 2, name: "Priya Nair", vehicle: "Ather Electric Scooter", currentZone: 1, isAvailable: true, totalDeliveries: 241, phone: "+91 98765 43211", activeOrderId: -1, speedMultiplier: 1.25 },
+    { id: 3, name: "Vikram Malhotra", vehicle: "Hero Splendor EV", currentZone: 2, isAvailable: true, totalDeliveries: 119, phone: "+91 98765 43212", activeOrderId: -1, speedMultiplier: 1.30 },
+    { id: 4, name: "Amitav Sen", vehicle: "TVS iQube Scooter", currentZone: 3, isAvailable: true, totalDeliveries: 195, phone: "+91 98765 43213", activeOrderId: -1, speedMultiplier: 1.25 },
+    { id: 5, name: "Kavita Rao", vehicle: "Ola S1 Pro Electric", currentZone: 4, isAvailable: true, totalDeliveries: 162, phone: "+91 98765 43214", activeOrderId: -1, speedMultiplier: 1.35 }
 ];
+
+// Initialize default rating, review count, and stock locks
+MENU_ITEMS.forEach((m, idx) => {
+    if (m.reservedStock === undefined) m.reservedStock = 0;
+    if (m.rating === undefined) m.rating = [4.9, 4.8, 4.7, 4.9, 4.6, 4.8][m.restaurantId - 1] || 4.7;
+    if (m.ratingCount === undefined) m.ratingCount = 40 + (idx % 35);
+});
 
 const ZONE_NAMES = ["Central", "North", "South", "East", "West"];
 const ZONE_DISTANCE_MATRIX = [
@@ -889,6 +896,95 @@ module.exports = async (req, res) => {
                     recentOrdersDequeSize: state.orders.length
                 }
             }
+        });
+    }
+
+    // 24. TOP RATED DISHES
+    if (pathname === '/top-dishes' && req.method === 'GET') {
+        const k = parseInt(req.query.k || '5', 10);
+        const sorted = [...MENU_ITEMS].sort((a, b) => {
+            if (b.rating !== a.rating) return b.rating - a.rating;
+            return b.ratingCount - a.ratingCount;
+        }).slice(0, k).map(m => ({
+            ...m,
+            availableStock: Math.max(0, m.stock - (m.reservedStock || 0))
+        }));
+
+        return res.status(200).json({
+            success: true,
+            message: "Top-rated dishes leaderboard",
+            modules: ["Module VII (Performance - O(N log K) Sorting / Ranking)", "Feature 3 (Customer Rating System & Top-K Ranking)"],
+            handled_by: ["Module VII (Performance - O(N log K) Sorting / Ranking)", "Feature 3 (Customer Rating System & Top-K Ranking)"],
+            data: { topK: k, dishes: sorted }
+        });
+    }
+
+    // 25. RATE DISH
+    if (pathname === '/rate-dish' && req.method === 'POST') {
+        const { dishId, stars } = req.body || {};
+        const dId = parseInt(dishId, 10);
+        const st = parseFloat(stars);
+        const item = MENU_ITEMS.find(m => m.id === dId);
+        if (!item || isNaN(st) || st < 1.0 || st > 5.0) {
+            return res.status(400).json({ success: false, message: "Invalid dish ID or rating (1.0 to 5.0)" });
+        }
+        item.rating = ((item.rating * item.ratingCount) + st) / (item.ratingCount + 1);
+        item.ratingCount += 1;
+        item.rating = Math.round(item.rating * 10) / 10;
+        return res.status(200).json({
+            success: true,
+            message: `Rating submitted for ${item.name}`,
+            modules: ["Module III (1D Arrays - ratings[])", "Feature 3 (Customer Rating System & Top-K Ranking)"],
+            handled_by: ["Module III (1D Arrays - ratings[])", "Feature 3 (Customer Rating System & Top-K Ranking)"],
+            data: { dishId: dId, name: item.name, newRating: item.rating, ratingCount: item.ratingCount }
+        });
+    }
+
+    // 26. RESTOCK ITEM
+    if (pathname === '/restock' && req.method === 'POST') {
+        const { itemId, quantity } = req.body || {};
+        const itId = parseInt(itemId, 10);
+        const qty = parseInt(quantity, 10);
+        const item = MENU_ITEMS.find(m => m.id === itId);
+        if (!item || isNaN(qty) || qty <= 0) {
+            return res.status(400).json({ success: false, message: "Invalid item ID or restock quantity" });
+        }
+        item.stock += qty;
+        return res.status(200).json({
+            success: true,
+            message: `Restocked ${qty} units of ${item.name}`,
+            modules: ["Module III (1D Arrays - stock[])", "Feature 2 (Real-Time Inventory Lock & Reservation)"],
+            handled_by: ["Module III (1D Arrays - stock[])", "Feature 2 (Real-Time Inventory Lock & Reservation)"],
+            data: { itemId: itId, name: item.name, stock: item.stock, availableStock: item.stock - (item.reservedStock || 0) }
+        });
+    }
+
+    // 27. FLEET STATUS
+    if (pathname === '/fleet' && req.method === 'GET') {
+        return res.status(200).json({
+            success: true,
+            message: "Fetched delivery fleet",
+            modules: ["Module VI (Structures - Rider)", "Module III (1D Arrays - riders[])", "Feature 1 (Smart Fleet Dispatch & Zone Routing)"],
+            handled_by: ["Module VI (Structures - Rider)", "Module III (1D Arrays - riders[])", "Feature 1 (Smart Fleet Dispatch & Zone Routing)"],
+            data: RIDERS
+        });
+    }
+
+    // 28. DISPATCH ORDER
+    if (pathname === '/orders/dispatch' && req.method === 'POST') {
+        const { orderId } = req.body || {};
+        const ordId = parseInt(orderId, 10);
+        const order = state.orders.find(o => o.orderId === ordId);
+        if (!order) {
+            return res.status(404).json({ success: false, message: "Order not found" });
+        }
+        order.status = "Out for Delivery";
+        return res.status(200).json({
+            success: true,
+            message: `Order #${ordId} is now out for delivery`,
+            modules: ["Module VI (Structures - Order/Rider)", "Feature 1 (Smart Fleet Dispatch & Zone Routing)"],
+            handled_by: ["Module VI (Structures - Order/Rider)", "Feature 1 (Smart Fleet Dispatch & Zone Routing)"],
+            data: order
         });
     }
 

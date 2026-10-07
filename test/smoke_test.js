@@ -34,6 +34,10 @@ const testCommands = [
     { cmd: 'GET_ARRAY_STATS', expectedMod: 'Module III', desc: '1D Arrays: Sum, Min, Max & Bubble Sort' },
     { cmd: 'BENCHMARK', expectedMod: 'Module VII', desc: 'Performance: Linear vs Binary, Bubble vs Introsort' },
     { cmd: 'COMPARE_DS 10000', expectedMod: 'Module X', desc: 'Custom ArrayStack/Queue vs STL stack/queue' },
+    { cmd: 'GET_FLEET_STATUS', expectedMod: 'Feature 1', desc: 'Smart Fleet Dispatch & Zone Routing' },
+    { cmd: 'RESTOCK_ITEM 101 25', expectedMod: 'Feature 2', desc: 'Real-Time Inventory Lock & Restocking' },
+    { cmd: 'RATE_DISH 101 5.0', expectedMod: 'Feature 3', desc: 'Customer Rating Feedback System' },
+    { cmd: 'GET_TOP_DISHES 5', expectedMod: 'Feature 3', desc: 'Top-K Leaderboard via O(N log K) Sorting' },
     { cmd: 'INSPECT_ENGINE', expectedMod: 'Module VIII', desc: 'Engine Live Memory Inspector' }
 ];
 

@@ -79,6 +79,14 @@ public:
         outItem = elements[idx];
         return true;
     }
+
+    int getTopIndex() const {
+        return topIndex;
+    }
+
+    bool getAtOffset(int offset, T& outItem) const {
+        return getAtDepth(offset, outItem);
+    }
 };
 
 #endif // ARRAY_STACK_HPP

@@ -1804,3 +1804,50 @@ body {
         grid-template-columns: 1fr;
     }
 }
+
+/* Stock and Rating Indicators */
+.stock-pill {
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 7px;
+    border-radius: var(--radius-full);
+    background: var(--surface-soft);
+    color: var(--text-muted);
+}
+.stock-pill.low {
+    background: rgba(217, 83, 30, 0.12);
+    color: var(--accent);
+}
+.stock-pill.out {
+    background: #ECE7E0;
+    color: #8C8479;
+}
+.btn-add-item.disabled, .stepper-btn.disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+.dish-rating-badge {
+    font-size: 11.5px;
+    font-weight: 700;
+    color: #9A6600;
+    background: #FFF9E6;
+    border: 1px solid #FFE499;
+    padding: 2px 7px;
+    border-radius: var(--radius-full);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 3px;
+    transition: background 0.15s ease;
+}
+.dish-rating-badge:hover {
+    background: #FFEAA8;
+}
+.restock-admin-form {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    margin-top: 16px;
+    flex-wrap: wrap;
+}

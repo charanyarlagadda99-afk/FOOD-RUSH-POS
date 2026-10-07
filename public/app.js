@@ -15,6 +15,9 @@ let appState = {
     cart: { itemCount: 0, items: [], total: 0, undoStackDepth: 0 },
     activeOrder: null,
     searchQuery: '',
+    searchMatches: [],
+    topDishes: [],
+    isTopRatedMode: false,
     searchDebounceTimer: null,
     vivaActive: false,
     zoneNames: ["Central", "North", "South", "East", "West"]
@@ -96,7 +99,8 @@ async function loadStorefrontData() {
 
     if (menuRes.success) {
         appState.menu = menuRes.data || [];
-        renderDishesGrid(appState.menu);
+        applyDishesFilter();
+        populateRestockDropdown();
     }
 }
 
@@ -149,6 +153,8 @@ function selectRestaurant(restId) {
         document.getElementById('menuRestaurantMeta').textContent = "Showing freshly prepared specialities";
     } else {
         appState.activeRestaurantId = restId;
+        appState.isTopRatedMode = false;
+        appState.searchQuery = '';
         const rest = appState.restaurants.find(r => r.id === restId);
         if (rest) {
             document.getElementById('menuRestaurantName').textContent = rest.name;
@@ -165,11 +171,53 @@ function selectRestaurant(restId) {
 
 function selectCuisineFilter(cuisine) {
     appState.activeCuisine = cuisine;
+    appState.isTopRatedMode = false;
+    appState.searchQuery = '';
+
+    const input = document.getElementById('mainSearchInput');
+    if (input) input.value = '';
+    const clearBtn = document.getElementById('searchClearBtn');
+    if (clearBtn) clearBtn.style.display = 'none';
+    const didYouMean = document.getElementById('didYouMeanBar');
+    if (didYouMean) didYouMean.style.display = 'none';
+    const resetBtn = document.getElementById('menuResetBtn');
+    if (resetBtn) resetBtn.style.display = 'none';
+
     document.querySelectorAll('.cuisine-chip').forEach(btn => {
-        btn.classList.toggle('active', btn.textContent.trim().includes(cuisine) || (cuisine === 'All' && btn.textContent.includes('All')));
+        btn.classList.toggle('active', btn.textContent.trim().includes(cuisine) || (cuisine === 'All' && btn.id === 'chipAll'));
     });
 
+    document.getElementById('menuRestaurantName').textContent = cuisine === 'All' ? "All Dishes" : `${cuisine} Specialities`;
+    document.getElementById('menuRestaurantMeta').textContent = cuisine === 'All' ? "Showing freshly prepared specialities" : `Curated authentic dishes from our kitchens`;
+
     applyDishesFilter();
+}
+
+async function selectTopRatedFilter() {
+    appState.isTopRatedMode = true;
+    appState.activeCuisine = 'TopRated';
+    appState.activeRestaurantId = 0;
+    appState.searchQuery = '';
+
+    const input = document.getElementById('mainSearchInput');
+    if (input) input.value = '';
+    const clearBtn = document.getElementById('searchClearBtn');
+    if (clearBtn) clearBtn.style.display = 'none';
+    const didYouMean = document.getElementById('didYouMeanBar');
+    if (didYouMean) didYouMean.style.display = 'none';
+
+    document.querySelectorAll('.cuisine-chip').forEach(btn => btn.classList.remove('active'));
+    document.getElementById('chipTopRated')?.classList.add('active');
+
+    const resp = await callApi('/top-dishes?k=8');
+    if (resp.success && resp.data) {
+        appState.topDishes = resp.data.dishes || [];
+        document.getElementById('menuRestaurantName').textContent = "Top Rated Leaderboard";
+        document.getElementById('menuRestaurantMeta').textContent = "Ranked live by verified diner ratings and reviews (O(N log K))";
+        const resetBtn = document.getElementById('menuResetBtn');
+        if (resetBtn) resetBtn.style.display = 'inline-block';
+        applyDishesFilter();
+    }
 }
 
 function filterMenuByDiet(diet) {
@@ -182,22 +230,31 @@ function filterMenuByDiet(diet) {
 }
 
 function applyDishesFilter() {
-    let filtered = [...appState.menu];
+    let baseList = [];
 
-    // Filter by restaurant
-    if (appState.activeRestaurantId > 0) {
-        filtered = filtered.filter(d => d.restaurantId === appState.activeRestaurantId);
+    if (appState.searchQuery && appState.searchMatches.length >= 0) {
+        baseList = [...appState.searchMatches];
+    } else if (appState.isTopRatedMode && appState.topDishes.length > 0) {
+        baseList = [...appState.topDishes];
+    } else {
+        baseList = [...appState.menu];
+
+        // Filter by restaurant
+        if (appState.activeRestaurantId > 0) {
+            baseList = baseList.filter(d => d.restaurantId === appState.activeRestaurantId);
+        }
+
+        // Filter by cuisine
+        if (appState.activeCuisine !== 'All' && !appState.isTopRatedMode) {
+            const matchingRestIds = appState.restaurants
+                .filter(r => r.cuisine.toLowerCase().includes(appState.activeCuisine.toLowerCase()))
+                .map(r => r.id);
+            baseList = baseList.filter(d => matchingRestIds.includes(d.restaurantId));
+        }
     }
 
-    // Filter by cuisine
-    if (appState.activeCuisine !== 'All') {
-        const matchingRestIds = appState.restaurants
-            .filter(r => r.cuisine.toLowerCase().includes(appState.activeCuisine.toLowerCase()))
-            .map(r => r.id);
-        filtered = filtered.filter(d => matchingRestIds.includes(d.restaurantId));
-    }
-
-    // Filter by diet
+    // Apply dietary filter
+    let filtered = baseList;
     if (appState.activeDiet === 'veg') {
         filtered = filtered.filter(d => d.isVeg);
     } else if (appState.activeDiet === 'nonveg') {
@@ -214,13 +271,22 @@ function renderDishesGrid(dishes) {
     if (!container) return;
 
     if (dishes.length === 0) {
-        container.innerHTML = `<div class="empty-state-card" style="grid-column: 1 / -1;"><p>No dishes match your active filter.</p></div>`;
+        container.innerHTML = `
+            <div class="empty-state-card" style="grid-column: 1 / -1; padding: 40px 20px; text-align: center;">
+                <p style="font-weight:600; color:var(--text-main);">No dishes match your selection.</p>
+                <button class="secondary-btn" onclick="clearSearch()" style="margin-top:12px;">Reset All Filters</button>
+            </div>
+        `;
         return;
     }
 
     container.innerHTML = dishes.map(dish => {
         const inCartItem = appState.cart.items?.find(c => c.itemId === dish.id);
         const qty = inCartItem ? inCartItem.quantity : 0;
+        const availStock = dish.availableStock !== undefined ? dish.availableStock : Math.max(0, dish.stock - (dish.reservedStock || 0));
+        const isSoldOut = availStock <= 0;
+        const rating = dish.rating ? dish.rating.toFixed(1) : "4.8";
+        const count = dish.ratingCount || 50;
 
         return `
             <div class="dish-card">
@@ -230,22 +296,34 @@ function renderDishesGrid(dishes) {
                         ${dish.isChefSpecial ? '<span class="tag-badge tag-chef">Chef Special</span>' : ''}
                         ${dish.isSpicy ? '<span class="tag-badge tag-spicy">Spicy</span>' : ''}
                         ${dish.isGlutenFree ? '<span class="tag-badge tag-gf">Gluten Free</span>' : ''}
+                        
+                        <!-- Customer Rating Badge (Clickable to Rate) -->
+                        <span class="dish-rating-badge" onclick="openRatingModal(${dish.id}, '${dish.name.replace(/'/g, "\\'")}')" title="Customer Rating · Click to submit a review">
+                            ★ ${rating} <small>(${count})</small>
+                        </span>
                     </div>
                     <h4 class="dish-name">${dish.name}</h4>
-                    <span class="dish-details">${dish.category} · ${dish.calories} kcal</span>
+                    <div style="display:flex; justify-content:space-between; align-items:center;">
+                        <span class="dish-details">${dish.category} · ${dish.calories} kcal</span>
+                        ${isSoldOut
+                            ? '<span class="stock-pill out">Sold Out</span>'
+                            : (availStock <= 5 ? `<span class="stock-pill low">Only ${availStock} left</span>` : `<span class="stock-pill">${availStock} in stock</span>`)}
+                    </div>
                 </div>
                 <div class="dish-bottom">
                     <span class="dish-price">₹${dish.price.toFixed(2)}</span>
                     <div>
-                        ${qty === 0 ? `
+                        ${isSoldOut && qty === 0 ? `
+                            <button class="btn-add-item disabled" disabled>Sold Out</button>
+                        ` : (qty === 0 ? `
                             <button class="btn-add-item" onclick="addToCart(${dish.id}, 1)">+ Add</button>
                         ` : `
                             <div class="qty-stepper">
                                 <button class="stepper-btn" onclick="addToCart(${dish.id}, -1)">−</button>
                                 <span class="stepper-qty">${qty}</span>
-                                <button class="stepper-btn" onclick="addToCart(${dish.id}, 1)">+</button>
+                                <button class="stepper-btn ${qty >= availStock ? 'disabled' : ''}" onclick="addToCart(${dish.id}, 1)" ${qty >= availStock ? 'disabled' : ''}>+</button>
                             </div>
-                        `}
+                        `)}
                     </div>
                 </div>
             </div>
@@ -270,19 +348,17 @@ function handleSearchInput(e) {
         return;
     }
 
-    // Debounce search by 180ms
+    // Debounce search by 150ms
     appState.searchDebounceTimer = setTimeout(async () => {
         const resp = await callApi(`/search?q=${encodeURIComponent(query)}`);
-        const resultsSection = document.getElementById('searchResultsSection');
-        const resultsGrid = document.getElementById('searchResultsGrid');
-        const heading = document.getElementById('searchResultsHeading');
         const didYouMeanBar = document.getElementById('didYouMeanBar');
         const didYouMeanChip = document.getElementById('didYouMeanChip');
+        const resetBtn = document.getElementById('menuResetBtn');
 
         if (resp.success && resp.data) {
-            resultsSection.style.display = 'block';
-            const matches = resp.data.matches || resp.data;
-            heading.textContent = `Search results for "${query}" (${matches.length})`;
+            appState.searchMatches = resp.data.matches || [];
+            appState.isTopRatedMode = false;
+            document.querySelectorAll('.cuisine-chip').forEach(btn => btn.classList.remove('active'));
 
             if (resp.data.didYouMean && resp.data.didYouMean.length > 0) {
                 didYouMeanBar.style.display = 'flex';
@@ -291,41 +367,44 @@ function handleSearchInput(e) {
                 didYouMeanBar.style.display = 'none';
             }
 
-            if (matches.length === 0) {
-                resultsGrid.innerHTML = `
-                    <div class="empty-state-card" style="grid-column: 1 / -1;">
-                        <p>No dishes found matching "${query}".</p>
-                    </div>
-                `;
-            } else {
-                resultsGrid.innerHTML = matches.map(dish => `
-                    <div class="dish-card">
-                        <div class="dish-top">
-                            <div class="dish-indicator-row">
-                                <span class="${dish.isVeg ? 'mark-veg' : 'mark-nonveg'}"></span>
-                                ${dish.isChefSpecial ? '<span class="tag-badge tag-chef">Special</span>' : ''}
-                                ${dish.isSpicy ? '<span class="tag-badge tag-spicy">Spicy</span>' : ''}
-                            </div>
-                            <h4 class="dish-name">${dish.name}</h4>
-                            <span class="dish-details">${dish.category} · ${dish.calories} kcal</span>
-                        </div>
-                        <div class="dish-bottom">
-                            <span class="dish-price">₹${dish.price.toFixed(2)}</span>
-                            <button class="btn-add-item" onclick="addToCart(${dish.id}, 1)">+ Add</button>
-                        </div>
-                    </div>
-                `).join('');
-            }
+            document.getElementById('menuRestaurantName').textContent = `Search: "${query}" (${appState.searchMatches.length} found)`;
+            document.getElementById('menuRestaurantMeta').textContent = "Pattern-matched dishes across partner kitchens";
+            if (resetBtn) resetBtn.style.display = 'inline-block';
+
+            applyDishesFilter();
         }
-    }, 180);
+    }, 150);
 }
 
 function clearSearch() {
+    appState.searchQuery = '';
+    appState.searchMatches = [];
+    appState.isTopRatedMode = false;
+
     const input = document.getElementById('mainSearchInput');
     if (input) input.value = '';
-    document.getElementById('searchClearBtn').style.display = 'none';
-    document.getElementById('searchResultsSection').style.display = 'none';
-    document.getElementById('didYouMeanBar').style.display = 'none';
+    const clearBtn = document.getElementById('searchClearBtn');
+    if (clearBtn) clearBtn.style.display = 'none';
+    const didYouMean = document.getElementById('didYouMeanBar');
+    if (didYouMean) didYouMean.style.display = 'none';
+    const resetBtn = document.getElementById('menuResetBtn');
+    if (resetBtn) resetBtn.style.display = 'none';
+
+    document.querySelectorAll('.cuisine-chip').forEach(btn => {
+        btn.classList.toggle('active', btn.id === 'chipAll');
+    });
+    appState.activeCuisine = 'All';
+
+    if (appState.activeRestaurantId > 0) {
+        const rest = appState.restaurants.find(r => r.id === appState.activeRestaurantId);
+        document.getElementById('menuRestaurantName').textContent = rest ? rest.name : "All Dishes";
+        document.getElementById('menuRestaurantMeta').textContent = rest ? `${rest.cuisine} · Minimum order ₹${rest.minOrder.toFixed(0)}` : "Showing freshly prepared specialities";
+    } else {
+        document.getElementById('menuRestaurantName').textContent = "All Dishes";
+        document.getElementById('menuRestaurantMeta').textContent = "Showing freshly prepared specialities";
+    }
+
+    applyDishesFilter();
 }
 
 function applySuggestion() {
@@ -362,19 +441,26 @@ async function addToCart(itemId, quantityDelta) {
     let resp;
     if (targetQty <= 0) {
         resp = await callApi('/cart/remove', 'POST', { itemId });
-    } else if (currentQty === 0) {
-        resp = await callApi('/cart/add', 'POST', { itemId, quantity: quantityDelta });
     } else {
-        // Delta adjustment
         resp = await callApi('/cart/add', 'POST', { itemId, quantity: quantityDelta });
     }
 
     if (resp.success) {
         appState.cart = resp.data;
         updateCartBadgeCount();
-        renderDishesGrid(appState.menu);
+
+        // Update local available stock
+        const dish = appState.menu.find(d => d.id === itemId);
+        if (dish) {
+            dish.reservedStock = (dish.reservedStock || 0) + quantityDelta;
+            dish.availableStock = Math.max(0, dish.stock - dish.reservedStock);
+        }
+
+        applyDishesFilter();
         renderCartDrawer();
         showUndoToast(resp.message || "Your order was updated");
+    } else {
+        showUndoToast(resp.message || "Could not update bag");
     }
 }
 
@@ -383,9 +469,16 @@ async function cartUndo() {
     if (resp.success) {
         appState.cart = resp.data;
         updateCartBadgeCount();
-        renderDishesGrid(appState.menu);
+
+        // Refresh menu to sync stock levels
+        const menuRes = await callApi('/menu');
+        if (menuRes.success) appState.menu = menuRes.data || [];
+
+        applyDishesFilter();
         renderCartDrawer();
         showUndoToast(`Reverted: ${resp.message}`);
+    } else {
+        showUndoToast(resp.message || "Nothing to undo");
     }
 }
 
@@ -394,7 +487,11 @@ async function cartClear() {
     if (resp.success) {
         appState.cart = resp.data;
         updateCartBadgeCount();
-        renderDishesGrid(appState.menu);
+
+        const menuRes = await callApi('/menu');
+        if (menuRes.success) appState.menu = menuRes.data || [];
+
+        applyDishesFilter();
         renderCartDrawer();
     }
 }
@@ -790,13 +887,81 @@ function renderAdminRiders(riders) {
     container.innerHTML = riders.map(r => `
         <div class="rider-admin-card">
             <span class="rider-name">${r.name}</span>
-            <span class="rider-detail">🛵 ${r.vehicle}</span>
+            <span class="rider-detail">🛵 ${r.vehicle} (Speed: ${r.speedMultiplier || 1.25}x)</span>
             <span class="rider-detail">Zone ${r.currentZone} (${appState.zoneNames[r.currentZone]}) · ${r.totalDeliveries} trips</span>
             <span style="font-size: 11px; font-weight: 700; color: ${r.isAvailable ? 'var(--success)' : 'var(--accent)'}; margin-top: 4px;">
-                ${r.isAvailable ? '● Available' : '● On Delivery'}
+                ${r.isAvailable ? '● Available' : `● Delivering Order #${r.activeOrderId}`}
             </span>
         </div>
     `).join('');
+}
+
+function populateRestockDropdown() {
+    const select = document.getElementById('adminRestockSelect');
+    if (!select || !appState.menu || appState.menu.length === 0) return;
+    select.innerHTML = appState.menu.map(d => `
+        <option value="${d.id}">#${d.id} ${d.name} (${d.stock} in stock)</option>
+    `).join('');
+}
+
+async function adminRestockItem() {
+    const select = document.getElementById('adminRestockSelect');
+    const qtyInput = document.getElementById('adminRestockQty');
+    if (!select || !qtyInput) return;
+    const itemId = parseInt(select.value, 10);
+    const quantity = parseInt(qtyInput.value, 10);
+    if (!itemId || !quantity || quantity <= 0) return;
+
+    const resp = await callApi('/restock', 'POST', { itemId, quantity });
+    if (resp.success) {
+        showUndoToast(resp.message);
+        const item = appState.menu.find(m => m.id === itemId);
+        if (item) {
+            item.stock = resp.data.stock;
+            item.availableStock = resp.data.availableStock;
+        }
+        populateRestockDropdown();
+        applyDishesFilter();
+    } else {
+        showUndoToast(resp.message || "Failed to restock");
+    }
+}
+
+// ============================================================================
+// CUSTOMER RATING MODAL (Feature 3)
+// ============================================================================
+
+let currentRatingDishId = null;
+
+function openRatingModal(dishId, dishName) {
+    currentRatingDishId = dishId;
+    const titleEl = document.getElementById('ratingDishName');
+    if (titleEl) titleEl.textContent = `Rate ${dishName}`;
+    document.getElementById('ratingModalOverlay').style.display = 'block';
+    document.getElementById('ratingModal').style.display = 'block';
+}
+
+function closeRatingModal() {
+    currentRatingDishId = null;
+    document.getElementById('ratingModalOverlay').style.display = 'none';
+    document.getElementById('ratingModal').style.display = 'none';
+}
+
+async function submitRating(stars) {
+    if (!currentRatingDishId) return;
+    const resp = await callApi('/rate-dish', 'POST', { dishId: currentRatingDishId, stars });
+    if (resp.success) {
+        const item = appState.menu.find(m => m.id === currentRatingDishId);
+        if (item) {
+            item.rating = resp.data.newRating;
+            item.ratingCount = resp.data.ratingCount;
+        }
+        showUndoToast(`Review saved: ${stars}★ for ${resp.data.name}`);
+        closeRatingModal();
+        applyDishesFilter();
+    } else {
+        showUndoToast(resp.message || "Failed to submit rating");
+    }
 }
 
 async function adminCookOrder(orderId) {

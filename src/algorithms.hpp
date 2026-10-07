@@ -243,6 +243,48 @@ inline bool validateTrackingCode(const std::string& trackingCode) {
     return (expectedCheckDigit == calculatedCheckDigit);
 }
 
+// ============================================================================
+// [FEATURE 1: SMART FLEET DISPATCH & ZONE ROUTING]
+// ============================================================================
+inline int findNearestAvailableRider(
+    int restaurantZone,
+    const Rider riders[],
+    int riderCount,
+    const double distanceMatrix[MAX_ZONES][MAX_ZONES],
+    double& outDistance)
+{
+    int bestIdx = -1;
+    double minDistance = 9999.0;
+    for (int i = 0; i < riderCount; ++i) {
+        if (riders[i].isAvailable) {
+            double dist = distanceMatrix[restaurantZone][riders[i].currentZone];
+            if (dist < minDistance) {
+                minDistance = dist;
+                bestIdx = i;
+            }
+        }
+    }
+    outDistance = (bestIdx != -1) ? minDistance : -1.0;
+    return bestIdx;
+}
+
+// ============================================================================
+// [FEATURE 3: RATING SYSTEM & TOP-K RANKING ENGINE]
+// ============================================================================
+inline std::vector<MenuItem> getTopKDishes(const MenuItem items[], int itemCount, int k) {
+    std::vector<MenuItem> sortedList;
+    for (int i = 0; i < itemCount; ++i) {
+        sortedList.push_back(items[i]);
+    }
+    std::sort(sortedList.begin(), sortedList.end(), [](const MenuItem& a, const MenuItem& b) {
+        if (std::abs(a.rating - b.rating) > 0.001) return a.rating > b.rating;
+        return a.ratingCount > b.ratingCount; // tie-breaker by total reviews
+    });
+    if (k > static_cast<int>(sortedList.size())) k = static_cast<int>(sortedList.size());
+    if (k < 1) k = 1;
+    return std::vector<MenuItem>(sortedList.begin(), sortedList.begin() + k);
+}
+
 // [MODULE V] JSON String Escaping | used by: PROTOCOL_SERIALIZER
 inline std::string escapeJSON(const std::string& input) {
     std::ostringstream ss;
@@ -362,6 +404,12 @@ public:
     const std::map<std::string, double>& getCoupons() const { return couponDiscounts; }
     const std::set<std::string>& getCuisines() const { return availableCuisines; }
     const std::vector<std::pair<int, double>>& getDailySpecials() const { return dailySpecials; }
+
+    int getVectorSize() const { return static_cast<int>(stlMenuItems.size()); }
+    int getCuisinesCount() const { return static_cast<int>(availableCuisines.size()); }
+    int getCouponsCount() const { return static_cast<int>(couponDiscounts.size()); }
+    int getCompletedCount() const { return static_cast<int>(recentOrdersDeque.size()); }
+    void addCuisine(const std::string& cuisine) { availableCuisines.insert(cuisine); }
 
     // [MODULE X] Live Comparison: Hand-crafted Array Stack/Queue vs STL Stack/Queue
     std::string compareDataStructures(int testIterations = 50000) const {

@@ -1,11 +1,4 @@
-# FoodRush - Setup & Execution Guide
-
-## Live Production URLs (Vercel)
-FoodRush is deployed live, globally accessible, and verified:
-- **Production Alias:** [https://foodrush-kappa.vercel.app](https://foodrush-kappa.vercel.app)
-- **Deployment URL:** [https://foodrush-2peb1x1p9-foraitools28-9900s-projects.vercel.app](https://foodrush-2peb1x1p9-foraitools28-9900s-projects.vercel.app)
-
----
+# FoodRush POS - Setup & Execution Guide
 
 ## Prerequisites
 - **C++ Compiler**: `g++` with C++17 support (MinGW-w64 on Windows, or GCC / Clang on Linux/macOS).
@@ -20,12 +13,22 @@ node --version
 
 ---
 
-## 1. Quick Launch (One Command)
+## 1. Quick Launch (One Click / One Command)
 
-From the project root (`d:\c++_year_2`):
-```bash
-node server/server.js
+### Option A: Windows Batch File (Easiest)
+From the project root (`FOOD-RUSH-POS`):
+Simply double-click:
 ```
+run.bat
+```
+*(This automatically compiles `foodrush_engine.exe` if not already built, starts the Node server, and points your browser to `http://localhost:3000`.)*
+
+### Option B: Node.js Command
+```bash
+npm start
+```
+*(Runs `node server/server.js` on `http://localhost:3000`)*
+
 Then open your browser and navigate to:
 ```
 http://localhost:3000
@@ -50,51 +53,37 @@ g++ -std=c++17 -O2 -static src/main.cpp -o foodrush_engine.exe
 ### Step B: Interactive CLI Mode (For Terminal Viva / Offline Mode)
 To test and demonstrate all features directly in the console without a browser:
 ```bash
-.\foodrush_engine.exe --cli
+.\foodrush_engine.exe --interactive
 ```
-Features available in CLI mode:
-- Option 1: Browse Restaurants & Menus
-- Option 2: Search Dishes
-- Option 3: Add to Cart
-- Option 4: View Cart & Totals
-- Option 5: Undo Last Cart Action (Stack LIFO)
-- Option 6: Checkout & Place Order
-- Option 7: Cook Next Order (Circular FIFO Queue)
-- Option 8: View 6×7 Sales Matrix & Statistics
-- Option 9: Run Algorithmic Performance Benchmarks
-
-### Step C: Launch the Web Bridge Server
-```bash
-npm start
-# or: node server/server.js
-```
+Available interactive commands:
+- `GET_INITIAL_STATE` - View POS boot state
+- `GET_TABLES` - View 12 dining tables status
+- `SELECT_TABLE <id>` - Select active table (1-12)
+- `ORDER_ADD <id> <qty>` - Add dish to table order (ArrayStack Push)
+- `ORDER_UNDO` - Undo last table modification (ArrayStack Pop)
+- `SUBMIT_KOT <guest> <0|1>` - Dispatch Kitchen Order Ticket (Circular Queue)
+- `GET_ACTIVE_ORDERS` - View live kitchen KOT queue
+- `GENERATE_BILL <tableId>` - Settle bill with GST & receipt
+- `GET_BILLS` - View past settled bills archive (STL deque)
+- `PRINT_BILL <billId>` - Print formatted thermal receipt (Check-digit)
+- `GET_STAFF` - View staff attendance & shifts
+- `GET_SALES_MATRIX` - 6 Outlets x 7 Days weekly sales matrix
+- `BENCHMARK` - Run stopwatch performance test
+- `COMPARE_DS` - Custom ArrayStack/Queue vs STL test
+- `EXIT` - Quit interactive console
 
 ---
 
-## 3. Running the Automated Smoke Test Suite
+## 3. Running Automated Integration Tests
 
-To verify all 21 engine commands, data structures, and response schemas:
+To run the complete 24-step smoke test suite covering all 10 syllabus modules and POS workflows:
 ```bash
-node test/smoke_test.js
+npm test
 ```
+*(or `node test/smoke_test.js`)*
+
 Expected output:
 ```
-==================================================
-  FoodRush C++ Engine - Comprehensive Smoke Test
-==================================================
-[PASS] GET_RESTAURANTS returned 6 restaurants
-[PASS] GET_MENU returned 48 dishes
-[PASS] SEARCH_DISH exact match 'Biryani' found 4 items
-[PASS] SEARCH_DISH fuzzy 'piza' suggested 'pizza'
-...
-Summary: 21 Passed, 0 Failed
-All 10 Syllabus Modules Verified and Operational!
+Smoke Test Results: 24 Passed, 0 Failed (100% Green)
+All 10 Syllabus Modules & POS Subsystems Verified Operational!
 ```
-
----
-
-## 4. Architecture Note: Local Native Server vs. Vercel Cloud Serverless
-FoodRush supports both local native C++ execution and global serverless deployment on Vercel:
-1. **Local Persistent Engine (`server/server.js`)**: Spawns `foodrush_engine.exe` as a persistent child process communicating via high-speed stdin/stdout IPC streams (measured round-trip time: **~1.85 ms**), preserving memory state for the 6×7 sales matrix, `ArrayStack` frames, and `CircularQueue` ring buffers.
-2. **Global Cloud Deployment (Vercel)**: During the Vercel cloud build, `scripts/build.js` invokes `g++ (GCC 11.5.0)` to compile the C++ engine on Linux. In production, `api/index.js` acts as an optimized, zero-latency serverless handler that faithfully preserves session state, algorithms (Levenshtein search, check-digit reversal, microsecond benchmarks), and all 10 CS module tags across warm lambda container instances.
-

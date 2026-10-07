@@ -1,7 +1,7 @@
 {
   "name": "foodrush",
   "version": "1.0.0",
-  "description": "FoodRush - High-Performance C++ Food Delivery Engine with Web Interface (CS Syllabus Modules I-X)",
+  "description": "FoodRush POS - High-Performance C++ Restaurant, Hotel & Cafe POS & Management System (CS Syllabus Modules I-X)",
   "main": "server/server.js",
   "scripts": {
     "start": "node server/server.js",
